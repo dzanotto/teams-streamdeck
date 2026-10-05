@@ -38,8 +38,8 @@ export function presentation(snapshot: Snapshot): { label: string; color: string
 
 export function renderSvg(snapshot: Snapshot): string {
   const { color, label } = presentation(snapshot);
-  const known = snapshot.status === "muted" || snapshot.status === "unmuted";
+  const showMicrophone = snapshot.status === "muted" || snapshot.status === "unmuted" || snapshot.status === "unknown" || snapshot.status === "stale";
   const mic = '<rect x="58" y="25" width="28" height="49" rx="14"/><path d="M46 60v7a26 26 0 0 0 52 0v-7M72 93v15M57 108h30"/>';
-  const symbol = known ? mic + (snapshot.status === "muted" ? '<path d="M39 28l66 76" stroke="#151c28" stroke-width="12"/><path d="M39 28l66 76"/>' : "") : '<circle cx="72" cy="61" r="34"/><path d="M61 49a12 12 0 1 1 18 11c-7 4-7 7-7 12M72 83v1"/>';
+  const symbol = showMicrophone ? mic + (snapshot.status === "muted" ? '<path d="M39 28l66 76" stroke="#151c28" stroke-width="12"/><path d="M39 28l66 76"/>' : "") : '<circle cx="72" cy="61" r="34"/><path d="M61 49a12 12 0 1 1 18 11c-7 4-7 7-7 12M72 83v1"/>';
   return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" rx="18" fill="#151c28"/><g fill="none" stroke="${color}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">${symbol}</g><text x="72" y="133" text-anchor="middle" font-family="Arial, sans-serif" font-weight="bold" font-size="17" fill="${color}">${label}</text></svg>`;
 }
