@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseStatus, parseToggle, presentation, renderSvg } from "../src/status.ts";
+import { parseStatus, parseToggle, parseCallEnd, presentation, renderSvg } from "../src/status.ts";
 
 test("preserves recognized and nonzero status results", () => {
   for (const [state, code] of [["muted", 0], ["unmuted", 0], ["ambiguous", 2], ["unknown", 2], ["permission_denied", 3], ["not_running", 4], ["unknown", 5]] as const) {
@@ -109,4 +109,43 @@ test("camera presentation distinguishes ON, OFF, and unknown without microphone 
     assert.ok(!detail.includes("microphone"));
   }
   assert.notEqual(renderSvg({ status: "on" }, "camera"), renderSvg({ status: "off" }, "camera"));
+});
+
+test("call end accepts verified completion even when closing Teams changes focus", () => {
+  for (const focus of [true, false, undefined]) {
+    assert.deepEqual(parseCallEnd(JSON.stringify({
+      call: "ended", action: "end", success: true, changed: true, action_attempted: true, focus_unchanged: focus
+    }), 0), { success: true, snapshot: { status: "ended", reason: undefined } });
+  }
+  for (const [call, code, reason] of [
+    ["unknown", 6, "verification_timeout"], ["ambiguous", 6, "multiple_call_windows"],
+    ["unknown", 6, "all_calls_on_hold"], ["unknown", 6, "command_in_progress"],
+    ["unknown", 6, "no_call_controls"], ["permission_denied", 3, "accessibility_permission_required"],
+    ["not_running", 4, "teams_not_running"], ["unknown", 5, "read_failed"]
+  ] as const) {
+    assert.deepEqual(parseCallEnd(JSON.stringify({ call, action: "end", success: false, reason }), code), {
+      success: false, snapshot: { status: call, reason }
+    });
+  }
+});
+
+test("call end rejects malformed or contradictory results instead of claiming completion", () => {
+  const confirmed = { call: "ended", action: "end", success: true, changed: true, action_attempted: true };
+  for (const [data, code] of [
+    [null, 0], [[], 0], [{ call: "ended" }, 0], [confirmed, 6], [confirmed, 64],
+    [{ ...confirmed, success: false }, 0], [{ ...confirmed, call: "unknown" }, 0],
+    [{ ...confirmed, call: "active" }, 0], [{ ...confirmed, action: "toggle" }, 0],
+    [{ ...confirmed, changed: false }, 0], [{ ...confirmed, action_attempted: false }, 0],
+    [{ ...confirmed, reason: {} }, 0],
+    [{ microphone: "muted", action: "end", success: true, changed: true, action_attempted: true }, 0]
+  ] as const) {
+    assert.deepEqual(parseCallEnd(JSON.stringify(data), code), {
+      success: false, snapshot: { status: "unknown", reason: "invalid_cli_response" }
+    });
+  }
+  assert.equal(parseCallEnd("not JSON", 0).success, false);
+  assert.equal(presentation({ status: "ready" }, "call").label, "END CALL");
+  assert.equal(presentation({ status: "ending" }, "call").label, "ENDING");
+  assert.equal(presentation({ status: "ended" }, "call").label, "ENDED");
+  assert.match(presentation({ status: "unknown" }, "call").detail, /not confirmed/);
 });

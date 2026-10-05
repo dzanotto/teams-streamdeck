@@ -1,21 +1,22 @@
 import streamDeck, { action, SingletonAction, type WillAppearEvent, type WillDisappearEvent,
   type DidReceiveSettingsEvent, type PropertyInspectorDidAppearEvent, type KeyAction,
   type SendToPluginEvent, type KeyDownEvent } from "@elgato/streamdeck";
-import { readMedia, toggleMedia } from "./cli.ts";
+import { readMedia, toggleMedia, endCall } from "./cli.ts";
 import { StatusMonitor } from "./monitor.ts";
-import { presentation, renderSvg, type Media, type Snapshot } from "./status.ts";
+import { CallEndController } from "./call.ts";
+import { presentation, renderSvg, type Control, type Snapshot } from "./status.ts";
 
 declare const __DEFAULT_CLI_PATH__: string;
 type Settings = { cliPath?: string };
 type Binding = { unsubscribe: () => void; key: KeyAction<Settings>; path: string; last?: Snapshot; image?: string };
 
-class MediaStatus extends SingletonAction<Settings> {
-  private monitors = new Map<string, StatusMonitor>();
+class ControlAction extends SingletonAction<Settings> {
+  private monitors = new Map<string, StatusMonitor | CallEndController>();
   private bindings = new Map<string, Binding>();
   private inspector?: string;
-  private readonly media: Media;
+  private readonly media: Control;
 
-  constructor(media: Media) { super(); this.media = media; }
+  constructor(media: Control) { super(); this.media = media; }
 
   override async onWillAppear(ev: WillAppearEvent<Settings>): Promise<void> {
     if (!ev.action.isKey()) return;
@@ -52,13 +53,14 @@ class MediaStatus extends SingletonAction<Settings> {
   override async onKeyDown(ev: KeyDownEvent<Settings>): Promise<void> {
     const binding = this.bindings.get(ev.action.id);
     if (!binding) return;
-    const result = await this.monitors.get(binding.path)?.toggle(
-      () => toggleMedia(binding.path, this.media), () => this.bindings.get(ev.action.id) === binding
+    const result = await this.monitors.get(binding.path)?.execute(
+      () => this.media === "call" ? endCall(binding.path) : toggleMedia(binding.path, this.media),
+      () => this.bindings.get(ev.action.id) === binding
     );
     if (!result) return;
-    streamDeck.logger.info(this.media, "toggle", result.success ? "confirmed" : "failed", result.snapshot.reason ?? "");
+    streamDeck.logger.info(this.media, this.media === "call" ? "end" : "toggle", result.success ? "confirmed" : "failed", result.snapshot.reason ?? "");
     if (!result.success && this.bindings.get(ev.action.id) === binding) {
-      await binding.key.showAlert().catch((error) => streamDeck.logger.debug("Could not show toggle failure", error));
+      await binding.key.showAlert().catch((error) => streamDeck.logger.debug("Could not show command failure", error));
     }
   }
 
@@ -69,7 +71,8 @@ class MediaStatus extends SingletonAction<Settings> {
     previous?.unsubscribe();
     let monitor = this.monitors.get(path);
     if (!monitor) {
-      monitor = new StatusMonitor(() => readMedia(path, this.media));
+      const control = this.media;
+      monitor = control === "call" ? new CallEndController() : new StatusMonitor(() => readMedia(path, control));
       this.monitors.set(path, monitor);
     }
     const binding: Binding = { key, path, unsubscribe: () => {} };
@@ -98,15 +101,21 @@ class MediaStatus extends SingletonAction<Settings> {
 }
 
 @action({ UUID: "com.dario.teams-cli.mic-status" })
-class MicrophoneStatus extends MediaStatus {
+class MicrophoneStatus extends ControlAction {
   constructor() { super("mic"); }
 }
 
 @action({ UUID: "com.dario.teams-cli.camera-status" })
-class CameraStatus extends MediaStatus {
+class CameraStatus extends ControlAction {
   constructor() { super("camera"); }
+}
+
+@action({ UUID: "com.dario.teams-cli.call-end" })
+class EndCall extends ControlAction {
+  constructor() { super("call"); }
 }
 
 streamDeck.actions.registerAction(new MicrophoneStatus());
 streamDeck.actions.registerAction(new CameraStatus());
-streamDeck.connect().then(() => streamDeck.logger.info("Teams CLI microphone and camera plug-in connected"));
+streamDeck.actions.registerAction(new EndCall());
+streamDeck.connect().then(() => streamDeck.logger.info("Teams CLI microphone, camera, and end-call plug-in connected"));

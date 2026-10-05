@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { StatusMonitor } from "../src/monitor.ts";
-import type { Snapshot, ToggleResult } from "../src/status.ts";
+import type { Snapshot, ActionResult } from "../src/status.ts";
 
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
 function deferred<T = Snapshot>() {
@@ -42,7 +42,7 @@ function deferred<T = Snapshot>() {
 
 test("toggle waits for reads, suppresses duplicate presses, and shares the confirmed result", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
-  const oldRead = deferred(), action = deferred<ToggleResult>();
+  const oldRead = deferred(), action = deferred<ActionResult>();
   let reads = 0, toggles = 0;
   const monitor = new StatusMonitor(() => { reads++; return oldRead.promise; });
   const a: Snapshot[] = [], b: Snapshot[] = [];
@@ -50,10 +50,10 @@ test("toggle waits for reads, suppresses duplicate presses, and shares the confi
   const stopB = monitor.subscribe((value) => b.push(value));
   t.after(() => { stopA(); stopB(); });
   const command = () => { toggles++; return action.promise; };
-  const pending = monitor.toggle(command);
+  const pending = monitor.execute(command);
   assert.equal(a.at(-1)?.status, "toggling");
   assert.equal(toggles, 0);
-  assert.equal(await monitor.toggle(command), undefined);
+  assert.equal(await monitor.execute(command), undefined);
   oldRead.resolve({ status: "muted" });
   await flush();
   assert.equal(toggles, 1);
@@ -61,7 +61,7 @@ test("toggle waits for reads, suppresses duplicate presses, and shares the confi
   t.mock.timers.tick(10000);
   assert.equal(reads, 1);
   assert.equal(a.at(-1)?.status, "toggling");
-  assert.equal(await monitor.toggle(command), undefined);
+  assert.equal(await monitor.execute(command), undefined);
   action.resolve({ success: true, snapshot: { status: "unmuted" } });
   assert.equal((await pending)?.success, true);
   assert.equal(a.at(-1)?.status, "unmuted");
@@ -80,7 +80,7 @@ test("failed toggles resume status polling without repeating the action", async 
   const stop = monitor.subscribe((value) => seen.push(value));
   t.after(stop);
   await flush();
-  const result = await monitor.toggle(async () => {
+  const result = await monitor.execute(async () => {
     toggles++;
     return { success: false, snapshot: { status: "unknown", reason: "verification_timeout" } };
   });
@@ -91,7 +91,7 @@ test("failed toggles resume status polling without repeating the action", async 
   assert.equal(reads, 2);
   assert.equal(toggles, 1);
   assert.equal(seen.at(-1)?.status, "muted");
-  const thrown = await monitor.toggle(async () => { throw new Error("failed"); });
+  const thrown = await monitor.execute(async () => { throw new Error("failed"); });
   assert.equal(thrown?.snapshot.reason, "toggle_failed");
   t.mock.timers.tick(1000);
   await flush();
@@ -105,7 +105,7 @@ test("a pending toggle is canceled when the initiating key disappears or changes
   const monitor = new StatusMonitor(() => { reads++; return read.promise; });
   const stop = monitor.subscribe(() => {});
   t.after(stop);
-  const pending = monitor.toggle(async () => {
+  const pending = monitor.execute(async () => {
     toggles++;
     return { success: true, snapshot: { status: "unmuted" } };
   }, () => current);
@@ -119,12 +119,12 @@ test("a pending toggle is canceled when the initiating key disappears or changes
 
 test("a completed toggle cannot publish into a later profile generation", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
-  const action = deferred<ToggleResult>();
+  const action = deferred<ActionResult>();
   let reads = 0;
   const monitor = new StatusMonitor(async () => { reads++; return { status: "muted" }; });
   const stopOld = monitor.subscribe(() => {});
   await flush();
-  const pending = monitor.toggle(() => action.promise);
+  const pending = monitor.execute(() => action.promise);
   await flush();
   stopOld();
   const seen: Snapshot[] = [];
@@ -143,13 +143,13 @@ test("hiding and reappearing before dispatch cancels the pending toggle", async 
   const read = deferred();
   let toggles = 0, reads = 0;
   const monitor = new StatusMonitor(() => { reads++; return read.promise; });
-  const command = async (): Promise<ToggleResult> => {
+  const command = async (): Promise<ActionResult> => {
     toggles++;
     return { success: true, snapshot: { status: "unmuted" } };
   };
-  assert.equal(await monitor.toggle(command), undefined);
+  assert.equal(await monitor.execute(command), undefined);
   const stopOld = monitor.subscribe(() => {});
-  const pending = monitor.toggle(command);
+  const pending = monitor.execute(command);
   stopOld();
   const seen: Snapshot[] = [];
   const stopNew = monitor.subscribe((value) => seen.push(value));

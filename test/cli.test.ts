@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, writeFile, readFile, rm, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readMedia, toggleMedia } from "../src/cli.ts";
+import { readMedia, toggleMedia, endCall } from "../src/cli.ts";
 
   for (const media of ["mic", "camera"] as const) {
   const field = media === "mic" ? "microphone" : "camera";
@@ -58,3 +58,24 @@ import { readMedia, toggleMedia } from "../src/cli.ts";
     assert.equal(await readFile(calls, "utf8"), "toggle\n");
   });
 }
+
+test("call end invokes the exact command without a shell and preserves refusal reasons", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "teams-call-end-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = join(dir, "fake teams;$(nothing)");
+  await writeFile(file, `#!${process.execPath}\nif (JSON.stringify(process.argv.slice(2)) !== '["call","end","--json"]') process.exit(64);\nconsole.log(JSON.stringify({call:"unknown",action:"end",success:false,reason:"all_calls_on_hold"}));process.exit(6);\n`);
+  await chmod(file, 0o755);
+  assert.deepEqual(await endCall(file), { success: false, snapshot: { status: "unknown", reason: "all_calls_on_hold" } });
+  assert.equal((await endCall("teams")).snapshot.reason, "absolute_path_required");
+  assert.equal((await endCall("/does-not-exist/teams")).snapshot.reason, "executable_missing");
+});
+
+test("a timed-out call end never trusts partial success or retries the command", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "teams-call-end-timeout-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = join(dir, "teams"), calls = join(dir, "calls");
+  await writeFile(file, `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(calls)}, 'end\\n');\nconsole.log('{"call":"ended","action":"end","success":true,"changed":true,"action_attempted":true}');setInterval(()=>{},1000);\n`);
+  await chmod(file, 0o755);
+  assert.deepEqual(await endCall(file, 300), { success: false, snapshot: { status: "unknown", reason: "command_terminated" } });
+  assert.equal(await readFile(calls, "utf8"), "end\n");
+});

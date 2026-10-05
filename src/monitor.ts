@@ -1,4 +1,4 @@
-import type { Snapshot, ToggleResult } from "./status.ts";
+import type { Snapshot, ActionResult } from "./status.ts";
 
 type Listener = (snapshot: Snapshot) => void;
 
@@ -38,7 +38,7 @@ export class StatusMonitor {
     };
   }
 
-  async toggle(command: () => Promise<ToggleResult>, isCurrent = () => true): Promise<ToggleResult | undefined> {
+  async execute(command: () => Promise<ActionResult>, isCurrent = () => true): Promise<ActionResult | undefined> {
     if (this.toggling || !this.listeners.size) return;
     this.toggling = true;
     const generation = this.generation;
@@ -50,7 +50,7 @@ export class StatusMonitor {
       // Finish the existing read before dispatching; its result is discarded.
       await this.inFlight?.catch(() => {});
       if (!this.listeners.size || generation !== this.generation || !isCurrent()) return;
-      let result: ToggleResult;
+      let result: ActionResult;
       try { result = await command(); }
       catch { result = { success: false, snapshot: { status: "unknown", reason: "toggle_failed" } }; }
       if (this.listeners.size && generation === this.generation) {

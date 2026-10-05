@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 
-  for (const media of ["mic", "camera"]) {
+for (const media of ["mic", "camera", "call"]) {
   test(`${media}: settings UI describes and routes messages to the selected control`, () => {
-    const action = `com.dario.teams-cli.${media}-status`;
+    const action = media === "call" ? "com.dario.teams-cli.call-end" : `com.dario.teams-cli.${media}-status`;
     const control = media === "mic" ? "microphone" : "camera";
     const sent: Record<string, unknown>[] = [];
     class Socket {
@@ -36,11 +36,12 @@ import { runInNewContext } from "node:vm";
     assert.deepEqual(sent[0], { event: "registerPropertyInspector", uuid: "inspector-id" });
     assert.deepEqual(sent[1], { event: "getSettings", action, context: "key-a" });
     assert.deepEqual(sent[2], { event: "sendToPlugin", action, context: "key-a", payload: { request: "status" } });
-    assert.ok(element("description").textContent.includes(`Shows the ${control} state`));
+    assert.ok(element("description").textContent.includes(media === "call" ? "Press the key to leave your active Teams call" : `Shows the ${control} state`));
+    assert.ok(element("operationHint").textContent.includes(media === "call" ? "only when you press" : "refresh automatically"));
     element("cliPath").value = "/new path/teams";
     element("settings").onsubmit({ preventDefault() {} });
     assert.deepEqual(sent[3], { event: "setSettings", action, context: "key-a", payload: { cliPath: "/new path/teams", extra: "preserved" } });
-    assert.equal(element("detail").textContent, `Path saved. Reading ${control} status…`);
+    assert.equal(element("detail").textContent, media === "call" ? "Path saved. Press the key to leave your active call." : `Path saved. Reading ${control} status…`);
     element("cliPath").value = "relative/path";
     element("settings").onsubmit({ preventDefault() {} });
     assert.equal(sent.length, 4);

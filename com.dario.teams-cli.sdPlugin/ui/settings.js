@@ -2,9 +2,15 @@
 window.connectElgatoStreamDeckSocket = (port, uuid, registerEvent, info, actionInfo) => {
   const action = JSON.parse(actionInfo);
   const isCamera = action.action === "com.dario.teams-cli.camera-status";
+  const isCallEnd = action.action === "com.dario.teams-cli.call-end";
   const control = isCamera ? "camera" : "microphone";
-  document.title = `Teams ${control} status`;
-  document.getElementById("description").textContent = `Shows the ${control} state reported by Microsoft Teams. Press the key to ${isCamera ? "turn the camera on or off" : "toggle mute"}. While TOGGLING is shown, additional presses are ignored.`;
+  document.title = isCallEnd ? "Teams end call" : `Teams ${control} status`;
+  document.getElementById("description").textContent = isCallEnd
+    ? "Press the key to leave your active Teams call. While ENDING is shown, additional presses are ignored. Teams may bring its main window forward when the call closes."
+    : `Shows the ${control} state reported by Microsoft Teams. Press the key to ${isCamera ? "turn the camera on or off" : "toggle mute"}. While TOGGLING is shown, additional presses are ignored.`;
+  document.getElementById("operationHint").textContent = isCallEnd
+    ? "The command runs only when you press the key. END CALL is an action label, not a call-status indicator."
+    : "Reads refresh automatically while this key is visible.";
   let settings = action.payload.settings ?? {};
   const input = document.getElementById("cliPath");
   const button = document.getElementById("save");
@@ -44,7 +50,7 @@ window.connectElgatoStreamDeckSocket = (port, uuid, registerEvent, info, actionI
     if (!input.reportValidity() || socket.readyState !== WebSocket.OPEN) return;
     settings = { ...settings, cliPath: path };
     send("setSettings", settings);
-    detail.textContent = `Path saved. Reading ${control} status…`;
+    detail.textContent = isCallEnd ? "Path saved. Press the key to leave your active call." : `Path saved. Reading ${control} status…`;
   };
   input.oninput = () => input.setCustomValidity("");
 };
