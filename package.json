@@ -1,0 +1,29 @@
+{
+  "name": "teams-streamdeck",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only Microsoft Teams microphone status for Stream Deck via teams-cli",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test:integration": "npm run build && node --test test/plugin.test.mjs",
+    "validate": "streamdeck validate com.dario.teams-cli.sdPlugin",
+    "pack": "npm run build && streamdeck pack com.dario.teams-cli.sdPlugin",
+    "link": "streamdeck link com.dario.teams-cli.sdPlugin",
+    "restart": "streamdeck restart com.dario.teams-cli"
+  },
+  "dependencies": {
+    "@elgato/streamdeck": "3.0.1"
+  },
+  "devDependencies": {
+    "@elgato/cli": "1.10.1",
+    "@types/node": "26.6.4",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}

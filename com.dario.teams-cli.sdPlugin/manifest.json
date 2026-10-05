@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+  "UUID": "com.dario.teams-cli",
+  "Name": "Teams CLI",
+  "Version": "0.1.0.0",
+  "Author": "Dario",
+  "Description": "Shows Microsoft Teams microphone status using the local teams-cli executable.",
+  "Category": "Teams CLI",
+  "CategoryIcon": "imgs/category",
+  "Icon": "imgs/plugin",
+  "CodePath": "bin/plugin.js",
+  "SDKVersion": 2,
+  "Software": {
+    "MinimumVersion": "7.1"
+  },
+  "Nodejs": {
+    "Version": "24"
+  },
+  "OS": [
+    {
+      "Platform": "mac",
+      "MinimumVersion": "13"
+    }
+  ],
+  "Actions": [
+    {
+      "UUID": "com.dario.teams-cli.mic-status",
+      "Name": "Microphone status",
+      "Tooltip": "Shows Teams microphone status. Read only: pressing this key does not mute or unmute.",
+      "Icon": "imgs/category",
+      "Controllers": [
+        "Keypad"
+      ],
+      "PropertyInspectorPath": "ui/settings.html",
+      "DisableAutomaticStates": true,
+      "DisableCaching": true,
+      "SupportedInMultiActions": false,
+      "SupportedInKeyLogicActions": false,
+      "States": [
+        {
+          "Image": "imgs/unknown",
+          "ShowTitle": false
+        }
+      ]
+    }
+  ]
+}
