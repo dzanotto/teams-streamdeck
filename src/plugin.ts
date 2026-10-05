@@ -1,7 +1,7 @@
 import streamDeck, { action, SingletonAction, type WillAppearEvent, type WillDisappearEvent,
   type DidReceiveSettingsEvent, type PropertyInspectorDidAppearEvent, type KeyAction,
-  type SendToPluginEvent } from "@elgato/streamdeck";
-import { readMicrophone } from "./cli.ts";
+  type SendToPluginEvent, type KeyDownEvent } from "@elgato/streamdeck";
+import { readMicrophone, toggleMicrophone } from "./cli.ts";
 import { StatusMonitor } from "./monitor.ts";
 import { presentation, renderSvg, type Snapshot } from "./status.ts";
 
@@ -47,7 +47,19 @@ class MicrophoneStatus extends SingletonAction<Settings> {
     }
   }
 
-  // No key handlers: pressing this first-increment key never changes call state.
+  override async onKeyDown(ev: KeyDownEvent<Settings>): Promise<void> {
+    const binding = this.bindings.get(ev.action.id);
+    if (!binding) return;
+    const result = await this.monitors.get(binding.path)?.toggle(
+      () => toggleMicrophone(binding.path), () => this.bindings.get(ev.action.id) === binding
+    );
+    if (!result) return;
+    streamDeck.logger.info("Microphone toggle", result.success ? "confirmed" : "failed", result.snapshot.reason ?? "");
+    if (!result.success && this.bindings.get(ev.action.id) === binding) {
+      await binding.key.showAlert().catch((error) => streamDeck.logger.debug("Could not show toggle failure", error));
+    }
+  }
+
   private bind(key: KeyAction<Settings>, settings: Settings): void {
     const path = typeof settings.cliPath === "string" ? settings.cliPath.trim() : __DEFAULT_CLI_PATH__;
     const previous = this.bindings.get(key.id);
@@ -83,4 +95,4 @@ class MicrophoneStatus extends SingletonAction<Settings> {
 }
 
 streamDeck.actions.registerAction(new MicrophoneStatus());
-streamDeck.connect().then(() => streamDeck.logger.info("Teams CLI microphone status plug-in connected (read only)"));
+streamDeck.connect().then(() => streamDeck.logger.info("Teams CLI microphone plug-in connected"));

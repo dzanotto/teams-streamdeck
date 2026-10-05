@@ -8,15 +8,36 @@ import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { WebSocketServer } from "ws";
 
-test("built SDK plug-in registers, displays CLI changes, ignores presses, and handles settings", { timeout: 15000 }, async (t) => {
+test("built SDK plug-in shares status, toggles on press, reports failures, and handles settings", { timeout: 20000 }, async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "teams-streamdeck-sdk-"));
   const runtime = join(dir, "com.dario.teams-cli.sdPlugin");
   await cp(resolve("com.dario.teams-cli.sdPlugin"), runtime, {
     recursive: true, filter: (source) => !source.includes("/logs")
   });
   const state = join(dir, "state.json"), calls = join(dir, "calls.jsonl"), cli = join(dir, "fake teams");
+  const release = join(dir, "release-toggle"), failure = join(dir, "fail-toggle");
   await writeFile(state, '{"microphone":"muted"}');
-  await writeFile(cli, `#!${process.execPath}\nconst fs = require('node:fs');fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2))+'\\n');console.log(fs.readFileSync(${JSON.stringify(state)},'utf8'));\n`);
+  await writeFile(cli, `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args)+'\\n');
+if (JSON.stringify(args) === '["mic","status","--json"]') {
+  console.log(fs.readFileSync(${JSON.stringify(state)}, 'utf8'));
+} else if (JSON.stringify(args) === '["mic","toggle","--json"]') {
+  async function toggle() {
+    while (!fs.existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 10));
+    if (fs.existsSync(${JSON.stringify(failure)})) {
+      console.log(JSON.stringify({microphone:'unknown',action:'toggle',success:false,reason:'verification_timeout'}));
+      process.exit(6);
+    }
+    const previous = JSON.parse(fs.readFileSync(${JSON.stringify(state)}, 'utf8'));
+    const microphone = previous.microphone === 'muted' ? 'unmuted' : 'muted';
+    fs.writeFileSync(${JSON.stringify(state)}, JSON.stringify({microphone}));
+    console.log(JSON.stringify({microphone,action:'toggle',success:true,focus_unchanged:true}));
+  }
+  toggle();
+} else process.exit(64);
+`);
   await chmod(cli, 0o755);
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, "listening");
@@ -61,12 +82,45 @@ test("built SDK plug-in registers, displays CLI changes, ignores presses, and ha
     return message.event === "setImage" && message.context === context &&
       Buffer.from(message.payload.image.split(",")[1], "base64").toString().includes(`>${label}</text>`);
   }
+  async function toggleCount() {
+    return (await readFile(calls, "utf8")).trim().split("\n").map((line) => JSON.parse(line)).filter((args) => args[1] === "toggle").length;
+  }
   send("willAppear");
   await waitFor((m) => imageHas(m, "key-a", "MUTED"));
   send("willAppear", "key-b");
   await waitFor((m) => imageHas(m, "key-b", "MUTED"));
   assert.equal((await readFile(calls, "utf8")).trim().split("\n").length, 1);
   send("keyDown"); send("keyUp");
+  await waitFor((m) => imageHas(m, "key-a", "TOGGLING"));
+  await waitFor((m) => imageHas(m, "key-b", "TOGGLING"));
+  send("keyDown"); send("keyDown", "key-b"); send("keyUp", "key-b");
+  await delay(100);
+  await writeFile(release, "");
+  await waitFor((m) => imageHas(m, "key-a", "LIVE"));
+  await waitFor((m) => imageHas(m, "key-b", "LIVE"));
+  assert.equal(await toggleCount(), 1);
+  assert.equal(JSON.parse(await readFile(state, "utf8")).microphone, "unmuted");
+
+  messages.length = 0;
+  send("keyDown", "key-b"); send("keyUp", "key-b");
+  await waitFor((m) => imageHas(m, "key-a", "MUTED"));
+  await waitFor((m) => imageHas(m, "key-b", "MUTED"));
+  assert.equal(await toggleCount(), 2);
+
+  await writeFile(failure, "");
+  messages.length = 0;
+  send("keyDown"); send("keyUp");
+  await waitFor((m) => m.event === "showAlert" && m.context === "key-a");
+  await waitFor((m) => imageHas(m, "key-a", "UNKNOWN"));
+  await waitFor((m) => imageHas(m, "key-b", "UNKNOWN"));
+  send("propertyInspectorDidAppear");
+  await waitFor((m) => m.event === "sendToPropertyInspector" && m.payload.reason === "verification_timeout");
+  await waitFor((m) => imageHas(m, "key-a", "MUTED"));
+  assert.equal(await toggleCount(), 3);
+  assert.equal(JSON.parse(await readFile(state, "utf8")).microphone, "muted");
+
+  // External changes continue to refresh without dispatching a toggle.
+  messages.length = 0;
   await writeFile(state, '{"microphone":"unmuted"}');
   await waitFor((m) => imageHas(m, "key-a", "LIVE"));
   await waitFor((m) => imageHas(m, "key-b", "LIVE"));
@@ -75,10 +129,19 @@ test("built SDK plug-in registers, displays CLI changes, ignores presses, and ha
   await waitFor((m) => m.event === "sendToPropertyInspector" && m.payload.label === "LIVE");
   send("didReceiveSettings", "key-a", { payload: { ...payload, settings: { cliPath: "/missing/teams" } } });
   await waitFor((m) => imageHas(m, "key-a", "SETUP"));
+  messages.length = 0;
+  send("keyDown"); send("keyUp");
+  await waitFor((m) => m.event === "showAlert" && m.context === "key-a");
+  await waitFor((m) => imageHas(m, "key-a", "SETUP"));
+  assert.equal(await toggleCount(), 3);
   send("willDisappear"); send("willDisappear", "key-b");
   await delay(100);
   const reads = (await readFile(calls, "utf8")).trim().split("\n");
   await delay(1200);
   assert.equal((await readFile(calls, "utf8")).trim().split("\n").length, reads.length);
-  for (const line of reads) assert.deepEqual(JSON.parse(line), ["mic", "status", "--json"]);
+  for (const line of reads) {
+    const args = JSON.parse(line);
+    assert.ok(args[1] === "status" || args[1] === "toggle");
+    assert.deepEqual(args, ["mic", args[1], "--json"]);
+  }
 });

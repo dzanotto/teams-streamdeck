@@ -1,8 +1,8 @@
 # Teams CLI for Stream Deck
 
-First increment: one **Microphone status** key for Microsoft Teams on macOS.
-It reads the existing `teams-cli` executable and shows the state Teams reports.
-Pressing the key does nothing; microphone toggling and camera support are later increments.
+One **Microphone status** key for Microsoft Teams on macOS.
+It uses the existing `teams-cli` executable to show the state Teams reports.
+Press the key to toggle mute through `teams mic toggle --json`.
 
 ## Use
 
@@ -20,6 +20,7 @@ status** onto an empty key. The executable path is prefilled for the sibling
 | MULTIPLE | Multiple eligible calls or conflicting controls |
 | SETUP | The executable path needs attention |
 | CHECKING | Awaiting an initial observation |
+| TOGGLING | A microphone toggle is pending; additional presses are ignored |
 | UNKNOWN | Inconclusive, failed, or expired observation |
 
 Select the key in Stream Deck to see details. For **ACCESS**, enable Stream Deck
@@ -64,12 +65,23 @@ standard `npm run restart` is also available through Elgato's CLI.
 The compiled Node backend and its dependencies are bundled; `teams` remains an
 external executable. A package built here initially points at this machine's
 CLI path, so a different machine needs its own path set in the key inspector.
-Logs are in `com.dario.teams-cli.sdPlugin/logs/`; only state/reason transitions
-are logged, not full CLI output or meeting text.
+Logs are in `com.dario.teams-cli.sdPlugin/logs/`; they contain state/reason
+transitions and toggle outcomes, not full CLI output or meeting text.
 
 ## Behavior and limits
 
-- Runs only `teams mic status --json` through `execFile`, with no shell.
+- Runs `teams mic status --json` for observations and `teams mic toggle --json`
+  on key-down through `execFile`, with no shell. Key-up does not dispatch a command.
+- Uses the CLI's fresh-state toggle rather than choosing mute/unmute from a cached
+  icon. The CLI requires one eligible non-held call and verifies the resulting state.
+- Polling pauses during toggles. An existing read finishes first and its result is
+  discarded; all visible keys using that executable share the toggle result.
+  Additional presses while busy are ignored, never queued. A pending toggle is
+  canceled before dispatch if its key disappears or its executable path changes.
+- A refused, failed, or unverified toggle displays a key alert and the CLI's status
+  and reason. Actions are never automatically retried; normal status polling resumes.
+  Toggle subprocesses have a 20-second timeout; a timeout does not prove no change
+  occurred. Only a successful CLI result is treated as a confirmed toggle.
 - One read per executable path is shared across visible keys. Polls wait one
   second after completion; permission/setup/Teams-not-running results retry
   after five seconds. There is no polling when the last key disappears.
@@ -89,20 +101,25 @@ are logged, not full CLI output or meeting text.
 
 ## Validation
 
-Unit/process tests cover the CLI JSON/exit-code contract, executable paths with
-spaces and shell metacharacters, read-only arguments, subprocess timeouts,
-shared polling, stale observations, profile disappearance/reappearance,
+Unit/process tests cover the status/toggle JSON and exit-code contracts, executable
+paths with spaces and shell metacharacters, exact arguments, subprocess timeouts,
+shared polling and toggles, duplicate presses, stale observations, profile changes,
 permission backoff, and settings-panel message routing.
 
 The integration test launches the actual bundled SDK plug-in against a local
 WebSocket host and a fake CLI. It verifies registration, shared reads, MUTED/LIVE
-image changes, inert key presses, inspector messages, changed paths, and stopping
-polls when keys disappear. It never connects to Teams or a physical Stream Deck.
+image changes, toggles in both directions, duplicate-press handling, failed-toggle
+alerts, inspector messages, changed paths, and stopping polls when keys disappear.
+It never connects to Teams or a physical Stream Deck.
 
-On 2026-10-05, all 10 unit/process/UI tests and the built-plug-in integration
-test passed. Elgato manifest validation and packaging passed. The development
-link was installed, developer mode enabled, and Stream Deck 7.6.0 confirmed
-the plug-in connected.
+Initial read-only validation on 2026-10-05: all 10 unit/process/UI tests and the
+built-plug-in integration test passed. Elgato manifest validation and packaging
+passed. The development link was installed, developer mode enabled, and Stream
+Deck 7.6.0 confirmed the plug-in connected.
+
+Toggle validation on 2026-10-05: all 18 unit/process/UI tests and the built-plug-in
+integration test passed, along with type checking and Elgato manifest validation.
+The configured release CLI's help confirms support for `mic toggle --json`.
 
 The user subsequently confirmed live that the Stream Deck key correctly shows
 LIVE and MUTED during an active call, and UNKNOWN when no call is active. This
@@ -112,7 +129,9 @@ distinguish absent calls from inaccessible controls.
 
 Background focus preservation, held-call behavior, and recovery after restarting
 Teams remain separate live checks; they were not reported in this validation.
-The status key itself cannot change meeting state.
+The user also confirmed on 2026-10-05 that pressing the physical Stream Deck
+button successfully toggles the microphone in the tested setup. The sibling
+CLI's own toggle has been tested separately (see its README).
 
 Reference: [Elgato SDK](https://docs.elgato.com/streamdeck/sdk/introduction/getting-started/)
 and [teams-cli](../teams-cli/README.md).

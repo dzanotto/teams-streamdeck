@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Read-only Microsoft Teams microphone status for Stream Deck via teams-cli",
+  "description": "Microsoft Teams microphone status and toggle for Stream Deck via teams-cli",
   "engines": {
     "node": ">=24"
   },

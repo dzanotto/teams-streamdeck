@@ -4,7 +4,7 @@
   "Name": "Teams CLI",
   "Version": "0.1.0.0",
   "Author": "Dario",
-  "Description": "Shows Microsoft Teams microphone status using the local teams-cli executable.",
+  "Description": "Shows and toggles Microsoft Teams microphone status using the local teams-cli executable.",
   "Category": "Teams CLI",
   "CategoryIcon": "imgs/category",
   "Icon": "imgs/plugin",
@@ -26,7 +26,7 @@
     {
       "UUID": "com.dario.teams-cli.mic-status",
       "Name": "Microphone status",
-      "Tooltip": "Shows Teams microphone status. Read only: pressing this key does not mute or unmute.",
+      "Tooltip": "Shows Teams microphone status. Press to toggle mute using Teams CLI.",
       "Icon": "imgs/category",
       "Controllers": [
         "Keypad"

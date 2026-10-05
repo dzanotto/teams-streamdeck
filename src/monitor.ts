@@ -1,13 +1,14 @@
-import type { Snapshot } from "./status.ts";
+import type { Snapshot, ToggleResult } from "./status.ts";
 
 type Listener = (snapshot: Snapshot) => void;
 
-/** One in-flight read per executable, shared by every visible key using it. */
+/** Serializes reads and toggles per executable, shared by every visible key using it. */
 export class StatusMonitor {
   private listeners = new Set<Listener>();
   private polling?: ReturnType<typeof setTimeout>;
   private expiry?: ReturnType<typeof setTimeout>;
-  private inFlight = false;
+  private inFlight?: Promise<Snapshot>;
+  private toggling = false;
   private current: Snapshot = { status: "checking" };
   private receivedAt = 0;
   private generation = 0;
@@ -22,7 +23,7 @@ export class StatusMonitor {
   subscribe(listener: Listener): () => void {
     const wasEmpty = this.listeners.size === 0;
     this.listeners.add(listener);
-    if (wasEmpty || Date.now() - this.receivedAt >= this.staleMs) this.current = { status: "checking" };
+    if (wasEmpty || Date.now() - this.receivedAt >= this.staleMs) this.current = { status: this.toggling ? "toggling" : "checking" };
     listener(this.current);
     if (wasEmpty) void this.poll();
     return () => {
@@ -32,9 +33,35 @@ export class StatusMonitor {
         clearTimeout(this.expiry);
         this.generation++;
         this.current = { status: "checking" };
-        // Let the bounded read finish. Reappearing keys wait for it before starting another.
+        // Let a bounded read or dispatched toggle finish before another operation.
       }
     };
+  }
+
+  async toggle(command: () => Promise<ToggleResult>, isCurrent = () => true): Promise<ToggleResult | undefined> {
+    if (this.toggling || !this.listeners.size) return;
+    this.toggling = true;
+    const generation = this.generation;
+    let published = false;
+    clearTimeout(this.polling);
+    clearTimeout(this.expiry);
+    this.publish({ status: "toggling" });
+    try {
+      // Finish the existing read before dispatching; its result is discarded.
+      await this.inFlight?.catch(() => {});
+      if (!this.listeners.size || generation !== this.generation || !isCurrent()) return;
+      let result: ToggleResult;
+      try { result = await command(); }
+      catch { result = { success: false, snapshot: { status: "unknown", reason: "toggle_failed" } }; }
+      if (this.listeners.size && generation === this.generation) {
+        this.accept(result.snapshot);
+        published = true;
+      }
+      return result;
+    } finally {
+      this.toggling = false;
+      if (this.listeners.size && !published) void this.poll();
+    }
   }
 
   private publish(snapshot: Snapshot): void {
@@ -43,18 +70,21 @@ export class StatusMonitor {
   }
 
   private async poll(): Promise<void> {
-    if (this.inFlight || !this.listeners.size) return;
-    this.inFlight = true;
+    if (this.inFlight || this.toggling || !this.listeners.size) return;
     const generation = this.generation;
     let result: Snapshot;
-    try { result = await this.read(); }
+    try { this.inFlight = this.read(); result = await this.inFlight; }
     catch { result = { status: "unknown", reason: "read_failed" }; }
-    this.inFlight = false;
-    if (!this.listeners.size) return;
+    this.inFlight = undefined;
+    if (this.toggling || !this.listeners.size) return;
     if (generation !== this.generation) {
       void this.poll();
       return;
     }
+    this.accept(result);
+  }
+
+  private accept(result: Snapshot): void {
     this.receivedAt = Date.now();
     clearTimeout(this.expiry);
     this.publish(result);
