@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Teams microphone status</title>
+  <title>Teams media status</title>
   <style>
     :root { color-scheme: dark; font: 12px -apple-system, BlinkMacSystemFont, sans-serif; color: #dedede; background: #2d2d2d; }
     body { margin: 14px; }
@@ -18,7 +18,7 @@
   </style>
 </head>
 <body>
-  <p>Shows the microphone state reported by Microsoft Teams. Press the key to toggle mute. While TOGGLING is shown, additional presses are ignored.</p>
+  <p id="description">Shows the state reported by Microsoft Teams. Press the key to toggle. While TOGGLING is shown, additional presses are ignored.</p>
   <form id="settings">
     <label for="cliPath">Teams CLI executable</label>
     <input id="cliPath" name="cliPath" type="text" spellcheck="false" autocomplete="off" placeholder="/absolute/path/to/teams" required>

@@ -53,3 +53,60 @@ test("missing controls, stale reads, and held calls remain visibly unknown", () 
   assert.notEqual(renderSvg({ status: "muted" }), renderSvg({ status: "unmuted" }));
   assert.ok(!renderSvg({ status: "unknown", reason: '<script>alert(1)</script>' }).includes("script"));
 });
+
+test("camera status uses only camera states and keeps failures distinct from OFF", () => {
+  for (const [camera, code] of [["on", 0], ["off", 0], ["unknown", 2], ["ambiguous", 2], ["permission_denied", 3], ["not_running", 4], ["unknown", 5]] as const) {
+    assert.deepEqual(parseStatus(JSON.stringify({ camera, reason: "example" }), code, "camera"), { status: camera, reason: "example" });
+  }
+  for (const [output, code] of [
+    ["not JSON", 0], ["null", 0], ['{"microphone":"muted"}', 0], ['{"camera":"muted"}', 0],
+    ['{"camera":"off"}', 5], ['{"camera":"off","reason":{}}', 0], ['{"camera":"unknown"}', 64]
+  ] as const) {
+    assert.equal(parseStatus(output, code, "camera").status, "unknown");
+  }
+  const both = '{"microphone":"muted","camera":"on"}';
+  assert.equal(parseStatus(both, 0, "camera").status, "on");
+  assert.equal(parseStatus(both, 0, "mic").status, "muted");
+  assert.equal(parseStatus('{"microphone":"on"}', 0).status, "unknown");
+});
+
+test("camera toggles require confirmed camera results and preserve refusal reasons", () => {
+  for (const camera of ["on", "off"]) {
+    assert.deepEqual(parseToggle(JSON.stringify({ camera, action: "toggle", success: true, focus_unchanged: true }), 0, "camera"), {
+      success: true, snapshot: { status: camera, reason: undefined }
+    });
+  }
+  for (const [camera, code] of [["unknown", 6], ["ambiguous", 6], ["permission_denied", 3], ["not_running", 4], ["unknown", 5]] as const) {
+    assert.deepEqual(parseToggle(JSON.stringify({ camera, action: "toggle", success: false, reason: "example" }), code, "camera"), {
+      success: false, snapshot: { status: camera, reason: "example" }
+    });
+  }
+  for (const [data, code] of [
+    [{ camera: "on" }, 0],
+    [{ camera: "on", action: "toggle", success: false }, 0],
+    [{ camera: "on", action: "toggle", success: true, focus_unchanged: true }, 6],
+    [{ camera: "on", action: "toggle", success: true, focus_unchanged: false }, 0],
+    [{ camera: "on", action: "toggle", success: true }, 0],
+    [{ camera: "on", action: "on", success: true, focus_unchanged: true }, 0],
+    [{ microphone: "unmuted", action: "toggle", success: true, focus_unchanged: true }, 0]
+  ] as const) {
+    assert.deepEqual(parseToggle(JSON.stringify(data), code, "camera"), {
+      success: false, snapshot: { status: "unknown", reason: "invalid_cli_response" }
+    });
+  }
+});
+
+test("camera presentation distinguishes ON, OFF, and unknown without microphone copy", () => {
+  assert.equal(presentation({ status: "on" }, "camera").label, "ON");
+  assert.equal(presentation({ status: "off" }, "camera").label, "OFF");
+  for (const status of ["unknown", "stale"] as const) {
+    assert.equal(presentation({ status }, "camera").label, "UNKNOWN");
+    assert.notEqual(renderSvg({ status }, "camera"), renderSvg({ status }, "mic"));
+  }
+  for (const status of ["on", "off", "unknown", "checking", "toggling", "ambiguous"] as const) {
+    const detail = presentation({ status }, "camera").detail;
+    assert.ok(detail.includes("camera"));
+    assert.ok(!detail.includes("microphone"));
+  }
+  assert.notEqual(renderSvg({ status: "on" }, "camera"), renderSvg({ status: "off" }, "camera"));
+});

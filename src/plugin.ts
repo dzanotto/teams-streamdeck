@@ -1,19 +1,21 @@
 import streamDeck, { action, SingletonAction, type WillAppearEvent, type WillDisappearEvent,
   type DidReceiveSettingsEvent, type PropertyInspectorDidAppearEvent, type KeyAction,
   type SendToPluginEvent, type KeyDownEvent } from "@elgato/streamdeck";
-import { readMicrophone, toggleMicrophone } from "./cli.ts";
+import { readMedia, toggleMedia } from "./cli.ts";
 import { StatusMonitor } from "./monitor.ts";
-import { presentation, renderSvg, type Snapshot } from "./status.ts";
+import { presentation, renderSvg, type Media, type Snapshot } from "./status.ts";
 
 declare const __DEFAULT_CLI_PATH__: string;
 type Settings = { cliPath?: string };
 type Binding = { unsubscribe: () => void; key: KeyAction<Settings>; path: string; last?: Snapshot; image?: string };
 
-@action({ UUID: "com.dario.teams-cli.mic-status" })
-class MicrophoneStatus extends SingletonAction<Settings> {
+class MediaStatus extends SingletonAction<Settings> {
   private monitors = new Map<string, StatusMonitor>();
   private bindings = new Map<string, Binding>();
   private inspector?: string;
+  private readonly media: Media;
+
+  constructor(media: Media) { super(); this.media = media; }
 
   override async onWillAppear(ev: WillAppearEvent<Settings>): Promise<void> {
     if (!ev.action.isKey()) return;
@@ -51,10 +53,10 @@ class MicrophoneStatus extends SingletonAction<Settings> {
     const binding = this.bindings.get(ev.action.id);
     if (!binding) return;
     const result = await this.monitors.get(binding.path)?.toggle(
-      () => toggleMicrophone(binding.path), () => this.bindings.get(ev.action.id) === binding
+      () => toggleMedia(binding.path, this.media), () => this.bindings.get(ev.action.id) === binding
     );
     if (!result) return;
-    streamDeck.logger.info("Microphone toggle", result.success ? "confirmed" : "failed", result.snapshot.reason ?? "");
+    streamDeck.logger.info(this.media, "toggle", result.success ? "confirmed" : "failed", result.snapshot.reason ?? "");
     if (!result.success && this.bindings.get(ev.action.id) === binding) {
       await binding.key.showAlert().catch((error) => streamDeck.logger.debug("Could not show toggle failure", error));
     }
@@ -67,7 +69,7 @@ class MicrophoneStatus extends SingletonAction<Settings> {
     previous?.unsubscribe();
     let monitor = this.monitors.get(path);
     if (!monitor) {
-      monitor = new StatusMonitor(() => readMicrophone(path));
+      monitor = new StatusMonitor(() => readMedia(path, this.media));
       this.monitors.set(path, monitor);
     }
     const binding: Binding = { key, path, unsubscribe: () => {} };
@@ -76,23 +78,35 @@ class MicrophoneStatus extends SingletonAction<Settings> {
       if (this.bindings.get(key.id) !== binding) return;
       const previous = binding.last;
       binding.last = snapshot;
-      const svg = renderSvg(snapshot);
+      const svg = renderSvg(snapshot, this.media);
       if (svg !== binding.image) {
         binding.image = svg;
-        void key.setImage(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`).catch((error) => streamDeck.logger.error("Could not render microphone status", error));
+        void key.setImage(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`).catch((error) => streamDeck.logger.error("Could not render", this.media, "status", error));
       }
       if (previous?.status !== snapshot.status || previous?.reason !== snapshot.reason) {
-        streamDeck.logger.info("Microphone status", snapshot.status, snapshot.reason ?? "");
+        streamDeck.logger.info(this.media, "status", snapshot.status, snapshot.reason ?? "");
         if (this.inspector === key.id) this.sendDetail(snapshot);
       }
     });
   }
 
   private sendDetail(snapshot: Snapshot): void {
-    void streamDeck.ui.sendToPropertyInspector({ ...presentation(snapshot), reason: snapshot.reason ?? "" })
+    if (streamDeck.ui.action?.id !== this.inspector) return;
+    void streamDeck.ui.sendToPropertyInspector({ ...presentation(snapshot, this.media), reason: snapshot.reason ?? "" })
       .catch((error) => streamDeck.logger.debug("Property inspector unavailable", error));
   }
 }
 
+@action({ UUID: "com.dario.teams-cli.mic-status" })
+class MicrophoneStatus extends MediaStatus {
+  constructor() { super("mic"); }
+}
+
+@action({ UUID: "com.dario.teams-cli.camera-status" })
+class CameraStatus extends MediaStatus {
+  constructor() { super("camera"); }
+}
+
 streamDeck.actions.registerAction(new MicrophoneStatus());
-streamDeck.connect().then(() => streamDeck.logger.info("Teams CLI microphone plug-in connected"));
+streamDeck.actions.registerAction(new CameraStatus());
+streamDeck.connect().then(() => streamDeck.logger.info("Teams CLI microphone and camera plug-in connected"));

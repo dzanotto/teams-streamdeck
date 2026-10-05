@@ -10,33 +10,35 @@ function deferred<T = Snapshot>() {
   return { promise, resolve };
 }
 
-test("multiple subscribers share reads, no overlaps, and stale status expires", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
-  const first = deferred(), second = deferred();
-  let calls = 0;
-  const monitor = new StatusMonitor(() => (++calls === 1 ? first.promise : second.promise));
-  const a: Snapshot[] = [], b: Snapshot[] = [];
-  const stopA = monitor.subscribe((value) => a.push(value));
-  const stopB = monitor.subscribe((value) => b.push(value));
-  t.after(() => { stopA(); stopB(); });
-  assert.equal(calls, 1);
-  first.resolve({ status: "muted" });
-  await flush();
-  assert.equal(a.at(-1)?.status, "muted");
-  assert.equal(b.at(-1)?.status, "muted");
-  t.mock.timers.tick(1000);
-  assert.equal(calls, 2);
-  t.mock.timers.tick(2500);
-  assert.equal(a.at(-1)?.status, "stale");
-  t.mock.timers.tick(5000);
-  assert.equal(calls, 2);
-  second.resolve({ status: "unmuted" });
-  await flush();
-  assert.equal(a.at(-1)?.status, "unmuted");
-  stopA(); stopB();
-  t.mock.timers.tick(10000);
-  assert.equal(calls, 2);
-});
+  for (const [inactive, active] of [["muted", "unmuted"], ["off", "on"]] as const) {
+  test(`${inactive}/${active}: multiple subscribers share reads, no overlaps, and stale status expires`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+    const first = deferred(), second = deferred();
+    let calls = 0;
+    const monitor = new StatusMonitor(() => (++calls === 1 ? first.promise : second.promise));
+    const a: Snapshot[] = [], b: Snapshot[] = [];
+    const stopA = monitor.subscribe((value) => a.push(value));
+    const stopB = monitor.subscribe((value) => b.push(value));
+    t.after(() => { stopA(); stopB(); });
+    assert.equal(calls, 1);
+    first.resolve({ status: inactive });
+    await flush();
+    assert.equal(a.at(-1)?.status, inactive);
+    assert.equal(b.at(-1)?.status, inactive);
+    t.mock.timers.tick(1000);
+    assert.equal(calls, 2);
+    t.mock.timers.tick(2500);
+    assert.equal(a.at(-1)?.status, "stale");
+    t.mock.timers.tick(5000);
+    assert.equal(calls, 2);
+    second.resolve({ status: active });
+    await flush();
+    assert.equal(a.at(-1)?.status, active);
+    stopA(); stopB();
+    t.mock.timers.tick(10000);
+    assert.equal(calls, 2);
+  });
+}
 
 test("toggle waits for reads, suppresses duplicate presses, and shares the confirmed result", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });

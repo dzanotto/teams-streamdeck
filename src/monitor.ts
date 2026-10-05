@@ -2,7 +2,7 @@ import type { Snapshot, ToggleResult } from "./status.ts";
 
 type Listener = (snapshot: Snapshot) => void;
 
-/** Serializes reads and toggles per executable, shared by every visible key using it. */
+/** Serializes reads and toggles for one control and executable, shared by its visible keys. */
 export class StatusMonitor {
   private listeners = new Set<Listener>();
   private polling?: ReturnType<typeof setTimeout>;
@@ -88,7 +88,7 @@ export class StatusMonitor {
     this.receivedAt = Date.now();
     clearTimeout(this.expiry);
     this.publish(result);
-    if (result.status === "muted" || result.status === "unmuted") {
+    if (["muted", "unmuted", "on", "off"].includes(result.status)) {
       this.expiry = setTimeout(() => this.publish({ status: "stale" }), this.staleMs);
     }
     const interval = ["setup", "permission_denied", "not_running"].includes(result.status) ? 5000 : this.pollMs;

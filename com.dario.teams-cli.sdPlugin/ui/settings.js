@@ -1,6 +1,10 @@
 /* Stream Deck's documented property-inspector WebSocket interface. No remote scripts. */
 window.connectElgatoStreamDeckSocket = (port, uuid, registerEvent, info, actionInfo) => {
   const action = JSON.parse(actionInfo);
+  const isCamera = action.action === "com.dario.teams-cli.camera-status";
+  const control = isCamera ? "camera" : "microphone";
+  document.title = `Teams ${control} status`;
+  document.getElementById("description").textContent = `Shows the ${control} state reported by Microsoft Teams. Press the key to ${isCamera ? "turn the camera on or off" : "toggle mute"}. While TOGGLING is shown, additional presses are ignored.`;
   let settings = action.payload.settings ?? {};
   const input = document.getElementById("cliPath");
   const button = document.getElementById("save");
@@ -40,7 +44,7 @@ window.connectElgatoStreamDeckSocket = (port, uuid, registerEvent, info, actionI
     if (!input.reportValidity() || socket.readyState !== WebSocket.OPEN) return;
     settings = { ...settings, cliPath: path };
     send("setSettings", settings);
-    detail.textContent = "Path saved. Reading microphone status…";
+    detail.textContent = `Path saved. Reading ${control} status…`;
   };
   input.oninput = () => input.setCustomValidity("");
 };
