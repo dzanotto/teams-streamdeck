@@ -154,29 +154,103 @@ async function launchPlugin(t, dir, cli, action) {
   return { messages, waitFor, send, imageHas, payload };
 }
 
-for (const media of ["mic", "camera"]) {
+const mediaStates = {
+  mic: { field: "microphone", inactive: "muted", active: "unmuted", inactiveLabel: "MUTED", activeLabel: "LIVE" },
+  camera: { field: "camera", inactive: "off", active: "on", inactiveLabel: "OFF", activeLabel: "ON" },
+  hand: { field: "hand", inactive: "lowered", active: "raised", inactiveLabel: "LOWERED", activeLabel: "RAISED" }
+};
+
+test("hand button uses a fresh read, refuses unknown state, and cancels before dispatch on path change", { timeout: 20000 }, async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "teams-streamdeck-hand-"));
+  const cli = join(dir, "fake teams"), calls = join(dir, "calls.jsonl"), state = join(dir, "state");
+  const block = join(dir, "block-read"), reading = join(dir, "reading");
+  await writeFile(state, "lowered");
+  await writeFile(cli, `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args)+'\\n');
+if (args.length !== 3 || args[0] !== 'hand' || args[2] !== '--json') process.exit(64);
+async function run() {
+  if (args[1] === 'status') {
+    if (fs.existsSync(${JSON.stringify(block)})) {
+      fs.writeFileSync(${JSON.stringify(reading)}, '');
+      const deadline = Date.now()+5000;
+      while (fs.existsSync(${JSON.stringify(block)})) {
+        if (Date.now()>deadline) process.exit(70);
+        await new Promise(resolve=>setTimeout(resolve,10));
+      }
+    }
+    const hand=fs.readFileSync(${JSON.stringify(state)},'utf8');
+    console.log(JSON.stringify({hand}));
+    process.exit(hand==='unknown'?2:0);
+  }
+  if (!['raise','lower'].includes(args[1])) process.exit(64);
+  const hand=args[1]==='raise'?'raised':'lowered';
+  fs.writeFileSync(${JSON.stringify(state)},hand);
+  console.log(JSON.stringify({hand,action:args[1],success:true,focus_unchanged:true}));
+}
+run();
+`);
+  await chmod(cli, 0o755);
+  const { messages, waitFor, send, imageHas, payload } = await launchPlugin(t, dir, cli, "com.dario.teams-cli.hand-status");
+  const actions = async () => (await readFile(calls, "utf8")).trim().split("\n").map(JSON.parse).filter((args) => args[1] !== "status");
+  send("willAppear");
+  await waitFor((m) => imageHas(m, "key-a", "LOWERED"));
+  send("willAppear", "key-b");
+  await waitFor((m) => imageHas(m, "key-b", "LOWERED"));
+  await writeFile(state, "raised");
+  messages.length = 0;
+  send("keyDown");
+  await waitFor((m) => imageHas(m, "key-a", "TOGGLING"));
+  await waitFor((m) => imageHas(m, "key-a", "LOWERED"));
+  assert.deepEqual(await actions(), [["hand", "lower", "--json"]]);
+
+  await writeFile(block, "");
+  messages.length = 0;
+  send("keyDown");
+  await waitFor((m) => imageHas(m, "key-a", "TOGGLING"));
+  const deadline = Date.now() + 5000;
+  while (await readFile(reading).then(() => false, () => true)) {
+    assert.ok(Date.now() < deadline, "fresh hand read did not start");
+    await delay(10);
+  }
+  send("keyDown", "key-b");
+  send("didReceiveSettings", "key-a", { payload: { ...payload, settings: { cliPath: "/missing/teams" } } });
+  await waitFor((m) => imageHas(m, "key-a", "SETUP"));
+  await rm(block);
+  await waitFor((m) => imageHas(m, "key-b", "LOWERED"));
+  assert.deepEqual(await actions(), [["hand", "lower", "--json"]]);
+  assert.ok(!messages.some((m) => m.event === "showAlert"));
+
+  await writeFile(state, "unknown");
+  await waitFor((m) => imageHas(m, "key-b", "UNKNOWN"));
+  send("keyDown", "key-b");
+  await waitFor((m) => m.event === "showAlert" && m.context === "key-b");
+  assert.deepEqual(await actions(), [["hand", "lower", "--json"]]);
+  send("willDisappear"); send("willDisappear", "key-b");
+});
+
+for (const media of ["mic", "camera", "hand"]) {
   test(`${media}: built SDK plug-in shares status, toggles, reports failures, and isolates the other control`, { timeout: 20000 }, async (t) => {
-    const field = media === "mic" ? "microphone" : "camera";
-    const inactive = media === "mic" ? "muted" : "off", active = media === "mic" ? "unmuted" : "on";
-    const inactiveLabel = media === "mic" ? "MUTED" : "OFF", activeLabel = media === "mic" ? "LIVE" : "ON";
+    const { field, inactive, active, inactiveLabel, activeLabel } = mediaStates[media];
     const otherMedia = media === "mic" ? "camera" : "mic";
-    const otherField = media === "mic" ? "camera" : "microphone";
-    const otherInactive = media === "mic" ? "off" : "muted", otherLabel = media === "mic" ? "OFF" : "MUTED";
+    const { field: otherField, inactive: otherInactive, inactiveLabel: otherLabel } = mediaStates[otherMedia];
     const otherAction = `com.dario.teams-cli.${otherMedia}-status`;
     const dir = await mkdtemp(join(tmpdir(), "teams-streamdeck-sdk-"));
     const state = join(dir, "state.json"), calls = join(dir, "calls.jsonl"), cli = join(dir, "fake teams");
     const release = join(dir, "release-toggle"), failure = join(dir, "fail-toggle");
-    await writeFile(state, '{"microphone":"muted","camera":"off"}');
+    await writeFile(state, '{"microphone":"muted","camera":"off","hand":"lowered"}');
     await writeFile(cli, `#!${process.execPath}
   const fs = require('node:fs');
   const args = process.argv.slice(2);
   fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args)+'\\n');
-  if (args.length !== 3 || !['mic','camera'].includes(args[0]) || args[2] !== '--json') process.exit(64);
-  const field = args[0] === 'mic' ? 'microphone' : 'camera';
+  if (args.length !== 3 || !['mic','camera','hand'].includes(args[0]) || args[2] !== '--json') process.exit(64);
+  const {field, inactive, active} = ${JSON.stringify(mediaStates)}[args[0]];
+  if (args[1] !== 'status' && !(args[0] === 'hand' ? ['raise','lower'] : ['toggle']).includes(args[1])) process.exit(64);
   if (args[1] === 'status') {
     const current = JSON.parse(fs.readFileSync(${JSON.stringify(state)}, 'utf8'));
     console.log(JSON.stringify({[field]: current[field]}));
-  } else if (args[1] === 'toggle') {
+  } else if (['toggle','raise','lower'].includes(args[1])) {
     async function toggle() {
       const deadline = Date.now() + 5000;
       while (!fs.existsSync(${JSON.stringify(release)})) {
@@ -184,14 +258,13 @@ for (const media of ["mic", "camera"]) {
         await new Promise(resolve => setTimeout(resolve, 10));
       }
       if (fs.existsSync(${JSON.stringify(failure)})) {
-        console.log(JSON.stringify({[field]:'unknown',action:'toggle',success:false,reason:'verification_timeout'}));
+        console.log(JSON.stringify({[field]:'unknown',action:args[1],success:false,reason:'verification_timeout'}));
         process.exit(6);
       }
       const previous = JSON.parse(fs.readFileSync(${JSON.stringify(state)}, 'utf8'));
-      const inactive = args[0] === 'mic' ? 'muted' : 'off', active = args[0] === 'mic' ? 'unmuted' : 'on';
-      const next = previous[field] === inactive ? active : inactive;
+      const next = args[0] === 'hand' ? (args[1] === 'raise' ? 'raised' : 'lowered') : (previous[field] === inactive ? active : inactive);
       fs.writeFileSync(${JSON.stringify(state)}, JSON.stringify({...previous, [field]:next}));
-      console.log(JSON.stringify({[field]:next,action:'toggle',success:true,focus_unchanged:true}));
+      console.log(JSON.stringify({[field]:next,action:args[1],success:true,focus_unchanged:true}));
     }
     toggle();
   } else process.exit(64);
@@ -200,7 +273,7 @@ for (const media of ["mic", "camera"]) {
     const action = `com.dario.teams-cli.${media}-status`;
     const { messages, waitFor, send, imageHas, payload } = await launchPlugin(t, dir, cli, action);
     async function toggleCount() {
-      return (await readFile(calls, "utf8")).trim().split("\n").map((line) => JSON.parse(line)).filter((args) => args[1] === "toggle").length;
+      return (await readFile(calls, "utf8")).trim().split("\n").map((line) => JSON.parse(line)).filter((args) => args[1] !== "status").length;
     }
     send("willAppear");
     await waitFor((m) => imageHas(m, "key-a", inactiveLabel));
@@ -278,8 +351,8 @@ for (const media of ["mic", "camera"]) {
     assert.equal((await readFile(calls, "utf8")).trim().split("\n").length, reads.length);
     for (const line of reads) {
       const args = JSON.parse(line);
-      assert.ok(args[1] === "status" || args[1] === "toggle");
-      assert.ok(args[0] === "mic" || args[0] === "camera");
+      assert.ok(args[1] === "status" || (args[0] === "hand" ? ["raise", "lower"] : ["toggle"]).includes(args[1]));
+      assert.ok(["mic", "camera", "hand"].includes(args[0]));
       assert.deepEqual(args, [args[0], args[1], "--json"]);
     }
   });

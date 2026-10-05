@@ -10,7 +10,7 @@ function deferred<T = Snapshot>() {
   return { promise, resolve };
 }
 
-  for (const [inactive, active] of [["muted", "unmuted"], ["off", "on"]] as const) {
+for (const [inactive, active] of [["muted", "unmuted"], ["off", "on"], ["lowered", "raised"]] as const) {
   test(`${inactive}/${active}: multiple subscribers share reads, no overlaps, and stale status expires`, async (t) => {
     t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
     const first = deferred(), second = deferred();
@@ -96,6 +96,24 @@ test("failed toggles resume status polling without repeating the action", async 
   t.mock.timers.tick(1000);
   await flush();
   assert.equal(reads, 3);
+});
+
+test("a hand action canceled after its fresh read resumes polling for remaining keys", async (t) => {
+  const action = deferred<ActionResult | undefined>();
+  let reads = 0;
+  const monitor = new StatusMonitor(async () => { reads++; return { status: "lowered" }; });
+  const seen: Snapshot[] = [];
+  const stop = monitor.subscribe((value) => seen.push(value));
+  t.after(stop);
+  await flush();
+  const pending = monitor.execute(() => action.promise);
+  await flush();
+  assert.equal(seen.at(-1)?.status, "toggling");
+  action.resolve(undefined);
+  assert.equal(await pending, undefined);
+  await flush();
+  assert.equal(reads, 2);
+  assert.equal(seen.at(-1)?.status, "lowered");
 });
 
 test("a pending toggle is canceled when the initiating key disappears or changes path", async (t) => {

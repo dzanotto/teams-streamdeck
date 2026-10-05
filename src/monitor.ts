@@ -38,7 +38,7 @@ export class StatusMonitor {
     };
   }
 
-  async execute(command: () => Promise<ActionResult>, isCurrent = () => true): Promise<ActionResult | undefined> {
+  async execute(command: () => Promise<ActionResult | undefined>, isCurrent = () => true): Promise<ActionResult | undefined> {
     if (this.toggling || !this.listeners.size) return;
     this.toggling = true;
     const generation = this.generation;
@@ -50,9 +50,10 @@ export class StatusMonitor {
       // Finish the existing read before dispatching; its result is discarded.
       await this.inFlight?.catch(() => {});
       if (!this.listeners.size || generation !== this.generation || !isCurrent()) return;
-      let result: ActionResult;
+      let result: ActionResult | undefined;
       try { result = await command(); }
       catch { result = { success: false, snapshot: { status: "unknown", reason: "toggle_failed" } }; }
+      if (!result) return;
       if (this.listeners.size && generation === this.generation) {
         this.accept(result.snapshot);
         published = true;
@@ -88,7 +89,7 @@ export class StatusMonitor {
     this.receivedAt = Date.now();
     clearTimeout(this.expiry);
     this.publish(result);
-    if (["muted", "unmuted", "on", "off"].includes(result.status)) {
+    if (["muted", "unmuted", "on", "off", "raised", "lowered"].includes(result.status)) {
       this.expiry = setTimeout(() => this.publish({ status: "stale" }), this.staleMs);
     }
     const interval = ["setup", "permission_denied", "not_running"].includes(result.status) ? 5000 : this.pollMs;

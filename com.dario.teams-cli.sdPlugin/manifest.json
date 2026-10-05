@@ -4,7 +4,7 @@
   "Name": "Teams CLI",
   "Version": "0.1.0.0",
   "Author": "Dario",
-  "Description": "Controls Microsoft Teams microphone, camera, and call ending using the local teams-cli executable.",
+  "Description": "Controls Microsoft Teams microphone, camera, hand, and call ending using the local teams-cli executable.",
   "Category": "Teams CLI",
   "CategoryIcon": "imgs/category",
   "Icon": "imgs/plugin",
@@ -59,6 +59,26 @@
       "States": [
         {
           "Image": "imgs/camera-unknown",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "UUID": "com.dario.teams-cli.hand-status",
+      "Name": "Hand status",
+      "Tooltip": "Shows your Teams hand status. Press to raise or lower your hand using Teams CLI.",
+      "Icon": "imgs/hand",
+      "Controllers": [
+        "Keypad"
+      ],
+      "PropertyInspectorPath": "ui/settings.html",
+      "DisableAutomaticStates": true,
+      "DisableCaching": true,
+      "SupportedInMultiActions": false,
+      "SupportedInKeyLogicActions": false,
+      "States": [
+        {
+          "Image": "imgs/hand-unknown",
           "ShowTitle": false
         }
       ]

@@ -1,16 +1,18 @@
 # Teams CLI for Stream Deck
 
-**Microphone status**, **Camera status**, and **End call** keys for Microsoft Teams
+**Microphone status**, **Camera status**, **Hand status**, and **End call** keys for Microsoft Teams
 on macOS, using the existing `teams-cli` executable.
 Press the microphone key to toggle mute through `teams mic toggle --json`, or
 the camera key to turn video on/off through `teams camera toggle --json`.
-Press **End call** to leave your active call through `teams call end --json`.
+Press the hand key to raise or lower your hand through `teams hand raise --json`
+or `teams hand lower --json`. Press **End call** to leave your active call through
+`teams call end --json`.
 
 ## Use
 
 Install the packaged `com.dario.teams-cli.streamDeckPlugin`, or use the development
 link described below. In Stream Deck, expand **Teams CLI** and drag **Microphone
-status**, **Camera status**, or **End call** onto an empty key. The executable path
+status**, **Camera status**, **Hand status**, or **End call** onto an empty key. The executable path
 is prefilled for the sibling `teams-cli` checkout at build time. Change it in the
 key's settings if needed.
 
@@ -20,6 +22,8 @@ key's settings if needed.
 | LIVE | Teams reports the microphone unmuted |
 | OFF | Teams reports the camera off; red crossed-out camera |
 | ON | Teams reports the camera on; green camera |
+| RAISED | Teams reports your hand raised; green hand |
+| LOWERED | Teams reports your hand lowered; gray hand |
 | TEAMS OFF | Teams is not running |
 | ACCESS | macOS Accessibility permission is unavailable |
 | MULTIPLE | Multiple eligible calls or conflicting controls |
@@ -29,7 +33,7 @@ key's settings if needed.
 | END CALL | Press to leave your call; this label does not indicate whether a call exists |
 | ENDING | An end-call command is pending; additional presses are ignored |
 | ENDED | The CLI confirmed that you left the call; shown for two seconds |
-| UNKNOWN | Inconclusive observation or unverified command; amber microphone, camera, or handset |
+| UNKNOWN | Inconclusive observation or unverified command; amber microphone, camera, hand, or handset |
 
 Select the key in Stream Deck to see details. For **ACCESS**, enable Stream Deck
 in **System Settings → Privacy & Security → Accessibility**. If macOS instead
@@ -41,6 +45,8 @@ Teams itself may bring its main window forward as the call window closes.
 ## Build and develop
 
 Requires Node 24+, Stream Deck 7.1+, macOS 13+, and a compiled `teams-cli`.
+The hand button requires a CLI version supporting `hand status`, `hand raise`,
+and `hand lower`. The sibling release executable supports these commands.
 Development dependencies are local to this project; no global Elgato CLI is needed.
 
 ```sh
@@ -79,9 +85,17 @@ transitions and command outcomes, not full CLI output or meeting text.
 
 ## Behavior and limits
 
-- Runs `teams mic status --json` or `teams camera status --json` for observations,
-  and the corresponding `toggle --json` command on key-down through `execFile`,
-  with no shell. Key-up does not dispatch a command.
+- Runs `teams mic status --json`, `teams camera status --json`, or
+  `teams hand status --json` for observations through `execFile`, with no shell.
+  Microphone and camera keys run the corresponding `toggle --json` on key-down.
+  Key-up does not dispatch a command.
+- **Hand status** performs a fresh `hand status --json` read on key-down, then
+  runs `hand raise --json` if lowered or `hand lower --json` if raised. An unknown,
+  ambiguous, or failed read prevents the action. The CLI rechecks eligibility and
+  verifies the requested state. These are separate CLI invocations; they do not
+  share a call identity across the read and action. The displayed state is never
+  used to choose the command. Successful results must match the requested state.
+  If the key disappears or changes path during the fresh read, the action is canceled.
 - **End call** runs only `teams call end --json`, once on key-down. It leaves your
   participation in the one active, non-held call. The CLI checks call selection
   and verifies completion; missing controls, all-held calls, and multiple active
@@ -90,18 +104,17 @@ transitions and command outcomes, not full CLI output or meeting text.
   button shows ENDED for two seconds after confirmed success, then returns to
   END CALL. Failures stay visible with a key alert and reason in the settings
   panel until the next press, path change, or profile change. There is no call
-  status polling; microphone/camera UNKNOWN states do not establish that a call ended.
+  status polling; microphone/camera/hand UNKNOWN states do not establish that a call ended.
 - Call-end confirmation follows the CLI's focus policy: a focus change caused by
-  leaving the call does not invalidate verified completion. Microphone and camera
-  toggles continue to require confirmation that focus was preserved.
-- Uses the CLI's fresh-state toggle rather than choosing a target from a cached
-  icon. The CLI requires one eligible non-held call and verifies the resulting state.
+  leaving the call does not invalidate verified completion. Microphone, camera,
+  and hand changes continue to require confirmation that focus was preserved.
+- Microphone and camera keys use the CLI's fresh-state toggle. The CLI requires one eligible non-held call and verifies the resulting state.
 - Polling for a control pauses during its toggle. An existing read finishes first
   and its result is discarded; all visible keys for that control and executable
-  share the toggle result. Microphone and camera observations stay independent.
+  share the toggle result. Microphone, camera, and hand observations stay independent.
   Additional presses while busy are ignored, never queued. A pending toggle is
   canceled before dispatch if its key disappears or its executable path changes.
-- The CLI shares an action lock across microphone, camera, and end-call commands.
+- The CLI shares an action lock across microphone, camera, hand, and end-call commands.
   If controls are pressed at once, a competing command may report busy; it is not
   queued or automatically retried.
 - A refused, failed, or unverified action displays a key alert and the CLI's status
@@ -113,31 +126,33 @@ transitions and command outcomes, not full CLI output or meeting text.
   after five seconds. There is no polling when the last key disappears.
 - Known status expires after 3.5 seconds without another completed observation.
   A hung status subprocess is terminated after 12 seconds; stale/invalid results
-  never become MUTED or OFF. An in-flight read may finish after a key disappears,
+  never become MUTED, OFF, or LOWERED. An in-flight read may finish after a key disappears,
   but its result is discarded and no further read starts while all keys are hidden.
 - Background changes made in Teams appear on the next successful read. This is
   polling, not an instantaneous media signal. While the computer or Stream Deck
   is suspended, the plug-in cannot update the physical key.
 - Uses the CLI's held-call filtering and ambiguity result, without selecting
   window indices or guessing which call to use.
-- Missing controls remain UNKNOWN. LIVE/MUTED and ON/OFF describe Teams UI state,
+- Missing controls remain UNKNOWN. LIVE/MUTED, ON/OFF, and RAISED/LOWERED describe Teams UI state,
   not physical hardware switches, audio/video capture, or delivery to other participants.
 - Teams updates can change the Accessibility interface. The CLI's existing
   version/language/minimized-window limits also apply here.
 
 ## Validation
 
-Unit/process tests cover the status/toggle/end JSON and exit-code contracts, executable
+Unit/process tests cover the status/toggle/raise/lower/end JSON and exit-code contracts, executable
 paths with spaces and shell metacharacters, exact arguments, subprocess timeouts,
 shared polling and toggles, duplicate presses, stale observations, profile changes,
 permission backoff, and settings-panel message routing.
 
 The integration test launches the actual bundled SDK plug-in against a local
-WebSocket host and a fake CLI. It verifies both controls, shared reads, MUTED/LIVE
-and OFF/ON image changes, toggles in both directions, duplicate-press handling,
+WebSocket host and a fake CLI. It verifies microphone, camera, and hand controls,
+shared reads, MUTED/LIVE, OFF/ON, and LOWERED/RAISED image changes, toggles in both directions, duplicate-press handling,
 failed-toggle alerts, inspector messages, changed paths, and stopping polls when
 keys disappear. Each run keeps the other control visible to check that its
 state, settings-panel details, and polling remain independent.
+The hand-specific test verifies fresh-state command selection, refusal of unknown
+state, and cancellation during a fresh read when the key changes executable path.
 The end-call test verifies exact command dispatch, shared busy handling,
 confirmed completion, failed-command alerts, path/profile changes, and the absence
 of polling or automatic retries.
@@ -181,6 +196,15 @@ visually checked. The release executable's help confirms support for `call end -
 The user confirmed on 2026-10-05 that the End call button works on the physical
 Stream Deck in the tested setup. The sibling CLI's call-end command has separate
 user-confirmed live validation (see its README).
+
+Hand-button validation on 2026-10-05: all 48 unit/process/UI tests and all five
+built-plug-in integration tests passed, along with type checking and Elgato
+manifest validation. RAISED, LOWERED, UNKNOWN, and TOGGLING hand icons were rendered
+and visually checked. The configured CLI's help confirms `hand raise` and
+`hand lower` support. No automated live hand action was run during implementation.
+
+The user confirmed on 2026-10-05 that the Hand status button works on the physical
+Stream Deck in the tested setup.
 
 Reference: [Elgato SDK](https://docs.elgato.com/streamdeck/sdk/introduction/getting-started/)
 and [teams-cli](../teams-cli/README.md).

@@ -2,12 +2,13 @@
 window.connectElgatoStreamDeckSocket = (port, uuid, registerEvent, info, actionInfo) => {
   const action = JSON.parse(actionInfo);
   const isCamera = action.action === "com.dario.teams-cli.camera-status";
+  const isHand = action.action === "com.dario.teams-cli.hand-status";
   const isCallEnd = action.action === "com.dario.teams-cli.call-end";
-  const control = isCamera ? "camera" : "microphone";
+  const control = isCamera ? "camera" : isHand ? "hand" : "microphone";
   document.title = isCallEnd ? "Teams end call" : `Teams ${control} status`;
   document.getElementById("description").textContent = isCallEnd
     ? "Press the key to leave your active Teams call. While ENDING is shown, additional presses are ignored. Teams may bring its main window forward when the call closes."
-    : `Shows the ${control} state reported by Microsoft Teams. Press the key to ${isCamera ? "turn the camera on or off" : "toggle mute"}. While TOGGLING is shown, additional presses are ignored.`;
+    : `Shows the ${control} state reported by Microsoft Teams. Press the key to ${isCamera ? "turn the camera on or off" : isHand ? "raise or lower your hand" : "toggle mute"}. While TOGGLING is shown, additional presses are ignored.`;
   document.getElementById("operationHint").textContent = isCallEnd
     ? "The command runs only when you press the key. END CALL is an action label, not a call-status indicator."
     : "Reads refresh automatically while this key is visible.";

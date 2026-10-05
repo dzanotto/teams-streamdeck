@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 
-for (const media of ["mic", "camera", "call"]) {
+for (const media of ["mic", "camera", "hand", "call"]) {
   test(`${media}: settings UI describes and routes messages to the selected control`, () => {
     const action = media === "call" ? "com.dario.teams-cli.call-end" : `com.dario.teams-cli.${media}-status`;
-    const control = media === "mic" ? "microphone" : "camera";
+    const control = media === "mic" ? "microphone" : media;
     const sent: Record<string, unknown>[] = [];
     class Socket {
       static OPEN = 1;
