@@ -32,25 +32,16 @@ export function parseStatus(stdout: string, exitCode: number, media: Media = "mi
   }
 }
 
-export function parseToggle(stdout: string, exitCode: number, media: Exclude<Media, "hand"> = "mic"): ActionResult {
-  return parseMediaAction(stdout, exitCode, media, "toggle");
-}
-
-export function parseHandAction(stdout: string, exitCode: number, action: "raise" | "lower"): ActionResult {
-  return parseMediaAction(stdout, exitCode, "hand", action, action === "raise" ? "raised" : "lowered");
-}
-
-function parseMediaAction(stdout: string, exitCode: number, media: Media, action: string, expectedState?: Status): ActionResult {
+export function parseToggle(stdout: string, exitCode: number, media: Media = "mic"): ActionResult {
   try {
     const data: unknown = JSON.parse(stdout);
     if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error();
     const record = data as Record<string, unknown>;
     // Exit 6 is specific to refused or unverified actions, never a confirmed state.
     const snapshot = parseStatus(stdout, exitCode === 6 ? 2 : exitCode, media);
-    if (snapshot.reason === "invalid_cli_response" || record.action !== action ||
+    if (snapshot.reason === "invalid_cli_response" || record.action !== "toggle" ||
         typeof record.success !== "boolean" || record.success !== (exitCode === 0) ||
-        (record.success && (record.focus_unchanged !== true ||
-          (expectedState !== undefined && snapshot.status !== expectedState)))) throw new Error();
+        (record.success && record.focus_unchanged !== true)) throw new Error();
     return { success: record.success, snapshot };
   } catch {
     return { success: false, snapshot: { status: "unknown", reason: "invalid_cli_response" } };

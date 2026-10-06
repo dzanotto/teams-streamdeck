@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, writeFile, readFile, chmod, rm, cp } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, readdir, chmod, rm, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { once } from "node:events";
@@ -151,7 +151,20 @@ async function launchPlugin(t, dir, cli, action) {
     return message.event === "setImage" && message.context === context &&
       Buffer.from(message.payload.image.split(",")[1], "base64").toString().includes(`>${label}</text>`);
   }
-  return { messages, waitFor, send, imageHas, payload };
+  async function waitForTiming(predicate) {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      const files = await readdir(join(runtime, "logs")).catch(() => []);
+      const logs = await Promise.all(files.filter((file) => file.endsWith(".log")).map((file) => readFile(join(runtime, "logs", file), "utf8")));
+      for (const line of logs.join("\n").split("\n")) {
+        const match = line.match(/button_timing (\{.*\})$/);
+        if (match) { const record = JSON.parse(match[1]); if (predicate(record)) return record; }
+      }
+      await delay(20);
+    }
+    throw new Error(`Timed out waiting for button timing log. ${output}`);
+  }
+  return { messages, waitFor, waitForTiming, send, imageHas, payload };
 }
 
 const mediaStates = {
@@ -160,10 +173,80 @@ const mediaStates = {
   hand: { field: "hand", inactive: "lowered", active: "raised", inactiveLabel: "LOWERED", activeLabel: "RAISED" }
 };
 
-test("hand button uses a fresh read, refuses unknown state, and cancels before dispatch on path change", { timeout: 20000 }, async (t) => {
+for (const media of ["mic", "camera", "hand"]) {
+  test(`${media}: pressing during a hung poll kills it before dispatch and logs all stages`, { timeout: 15000 }, async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), "teams-streamdeck-cancel-"));
+    const cli = join(dir, "fake teams"), reading = join(dir, "reading"), calls = join(dir, "calls");
+    const dispatch = join(dir, "dispatch"), release = join(dir, "release");
+    const { field, inactive, active, activeLabel } = mediaStates[media];
+    await writeFile(cli, `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args)+'\\n');
+if (args[1] === 'status' && !fs.existsSync(${JSON.stringify(reading)})) {
+  process.stdout.write(JSON.stringify({${field}:'${inactive}'})+'\\n', () => fs.writeFileSync(${JSON.stringify(reading)}, String(process.pid)));
+  setInterval(() => {}, 1000);
+} else if (args[1] === 'status') {
+  console.log(JSON.stringify({${field}:'${inactive}'}));
+} else {
+  const pid = Number(fs.readFileSync(${JSON.stringify(reading)}, 'utf8'));
+  try { process.kill(pid, 0); process.exit(74); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+  fs.writeFileSync(${JSON.stringify(dispatch)}, '');
+  async function run() {
+    const deadline = Date.now()+5000;
+    while (!fs.existsSync(${JSON.stringify(release)})) {
+      if (Date.now()>deadline) process.exit(70);
+      await new Promise(resolve=>setTimeout(resolve,10));
+    }
+    console.log(JSON.stringify({${field}:'${active}',action:args[1],success:true,focus_unchanged:true}));
+  }
+  run();
+}
+`);
+    await chmod(cli, 0o755);
+    const { messages, waitFor, waitForTiming, send, imageHas } = await launchPlugin(t, dir, cli, `com.dario.teams-cli.${media}-status`);
+    async function waitForFile(path) {
+      const deadline = Date.now() + 5000;
+      while (await readFile(path).then(() => false, () => true)) {
+        assert.ok(Date.now() < deadline, `Missing ${path}`);
+        await delay(10);
+      }
+    }
+    send("willAppear"); send("willAppear", "key-b");
+    await waitForFile(reading);
+    send("keyDown"); send("keyDown", "key-b");
+    await waitFor((m) => imageHas(m, "key-a", "TOGGLING"));
+    await waitForFile(dispatch);
+    const ignored = await waitForTiming((record) => record.outcome === "ignored_busy");
+    assert.deepEqual(ignored.commands, []);
+    assert.equal(ignored.stages_ms.ready, undefined);
+    await writeFile(release, "");
+    await waitFor((m) => imageHas(m, "key-a", activeLabel));
+    await waitFor((m) => imageHas(m, "key-b", activeLabel));
+    const timing = await waitForTiming((record) => record.outcome === "confirmed");
+    assert.equal(timing.control, media);
+    assert.notEqual(timing.press_id, ignored.press_id);
+    const stages = ["accepted", "poll_cancel_requested", "poll_settled", "command_started", "command_completed", "ready"].map((stage) => timing.stages_ms[stage]);
+    assert.ok(stages.every(Number.isFinite));
+    assert.deepEqual(stages, [...stages].sort((a, b) => a - b));
+    assert.deepEqual(timing.commands.map((span) => span.command), [`${media} toggle --json`]);
+    for (const span of timing.commands) {
+      assert.ok(span.dispatch_ms >= timing.stages_ms.poll_settled);
+      assert.ok(span.complete_ms >= span.dispatch_ms);
+      assert.ok(span.complete_ms <= timing.stages_ms.command_completed);
+      assert.ok(span.duration_ms >= 0);
+    }
+    assert.ok(!messages.some((m) => m.event === "showAlert"));
+    const invocations = (await readFile(calls, "utf8")).trim().split("\n").map(JSON.parse);
+    assert.equal(invocations.filter((args) => args[1] !== "status").length, 1);
+    send("willDisappear"); send("willDisappear", "key-b");
+  });
+}
+
+test("hand button delegates fresh state to native toggle and preserves in-flight actions on path change", { timeout: 20000 }, async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "teams-streamdeck-hand-"));
   const cli = join(dir, "fake teams"), calls = join(dir, "calls.jsonl"), state = join(dir, "state");
-  const block = join(dir, "block-read"), reading = join(dir, "reading");
+  const block = join(dir, "block-toggle"), dispatch = join(dir, "dispatch");
   await writeFile(state, "lowered");
   await writeFile(cli, `#!${process.execPath}
 const fs = require('node:fs');
@@ -172,27 +255,30 @@ fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args)+'\\n');
 if (args.length !== 3 || args[0] !== 'hand' || args[2] !== '--json') process.exit(64);
 async function run() {
   if (args[1] === 'status') {
-    if (fs.existsSync(${JSON.stringify(block)})) {
-      fs.writeFileSync(${JSON.stringify(reading)}, '');
-      const deadline = Date.now()+5000;
-      while (fs.existsSync(${JSON.stringify(block)})) {
-        if (Date.now()>deadline) process.exit(70);
-        await new Promise(resolve=>setTimeout(resolve,10));
-      }
-    }
     const hand=fs.readFileSync(${JSON.stringify(state)},'utf8');
     console.log(JSON.stringify({hand}));
     process.exit(hand==='unknown'?2:0);
   }
-  if (!['raise','lower'].includes(args[1])) process.exit(64);
-  const hand=args[1]==='raise'?'raised':'lowered';
+  if (args[1] !== 'toggle') process.exit(64);
+  fs.writeFileSync(${JSON.stringify(dispatch)}, '');
+  const deadline = Date.now()+5000;
+  while (fs.existsSync(${JSON.stringify(block)})) {
+    if (Date.now()>deadline) process.exit(70);
+    await new Promise(resolve=>setTimeout(resolve,10));
+  }
+  const previous=fs.readFileSync(${JSON.stringify(state)},'utf8');
+  if (previous==='unknown') {
+    console.log(JSON.stringify({hand:'unknown',action:'toggle',success:false,reason:'own_video_missing'}));
+    process.exit(6);
+  }
+  const hand=previous==='raised'?'lowered':'raised';
   fs.writeFileSync(${JSON.stringify(state)},hand);
   console.log(JSON.stringify({hand,action:args[1],success:true,focus_unchanged:true}));
 }
 run();
 `);
   await chmod(cli, 0o755);
-  const { messages, waitFor, send, imageHas, payload } = await launchPlugin(t, dir, cli, "com.dario.teams-cli.hand-status");
+  const { messages, waitFor, waitForTiming, send, imageHas, payload } = await launchPlugin(t, dir, cli, "com.dario.teams-cli.hand-status");
   const actions = async () => (await readFile(calls, "utf8")).trim().split("\n").map(JSON.parse).filter((args) => args[1] !== "status");
   send("willAppear");
   await waitFor((m) => imageHas(m, "key-a", "LOWERED"));
@@ -203,30 +289,36 @@ run();
   send("keyDown");
   await waitFor((m) => imageHas(m, "key-a", "TOGGLING"));
   await waitFor((m) => imageHas(m, "key-a", "LOWERED"));
-  assert.deepEqual(await actions(), [["hand", "lower", "--json"]]);
+  assert.deepEqual(await actions(), [["hand", "toggle", "--json"]]);
+  const timing = await waitForTiming((record) => record.outcome === "confirmed");
+  assert.deepEqual(timing.commands.map((span) => span.command), ["hand toggle --json"]);
 
+  await rm(dispatch);
   await writeFile(block, "");
   messages.length = 0;
   send("keyDown");
   await waitFor((m) => imageHas(m, "key-a", "TOGGLING"));
   const deadline = Date.now() + 5000;
-  while (await readFile(reading).then(() => false, () => true)) {
-    assert.ok(Date.now() < deadline, "fresh hand read did not start");
+  while (await readFile(dispatch).then(() => false, () => true)) {
+    assert.ok(Date.now() < deadline, "hand toggle did not start");
     await delay(10);
   }
   send("keyDown", "key-b");
   send("didReceiveSettings", "key-a", { payload: { ...payload, settings: { cliPath: "/missing/teams" } } });
   await waitFor((m) => imageHas(m, "key-a", "SETUP"));
   await rm(block);
-  await waitFor((m) => imageHas(m, "key-b", "LOWERED"));
-  assert.deepEqual(await actions(), [["hand", "lower", "--json"]]);
+  await waitFor((m) => imageHas(m, "key-b", "RAISED"));
+  assert.deepEqual(await actions(), [["hand", "toggle", "--json"], ["hand", "toggle", "--json"]]);
+  assert.ok(!messages.some((m) => imageHas(m, "key-a", "RAISED")));
   assert.ok(!messages.some((m) => m.event === "showAlert"));
 
   await writeFile(state, "unknown");
   await waitFor((m) => imageHas(m, "key-b", "UNKNOWN"));
   send("keyDown", "key-b");
   await waitFor((m) => m.event === "showAlert" && m.context === "key-b");
-  assert.deepEqual(await actions(), [["hand", "lower", "--json"]]);
+  assert.deepEqual(await actions(), Array.from({ length: 3 }, () => ["hand", "toggle", "--json"]));
+  const failed = await waitForTiming((record) => record.outcome === "failed" && record.reason === "own_video_missing");
+  assert.deepEqual(failed.commands.map((span) => span.command), ["hand toggle --json"]);
   send("willDisappear"); send("willDisappear", "key-b");
 });
 
@@ -246,11 +338,11 @@ for (const media of ["mic", "camera", "hand"]) {
   fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args)+'\\n');
   if (args.length !== 3 || !['mic','camera','hand'].includes(args[0]) || args[2] !== '--json') process.exit(64);
   const {field, inactive, active} = ${JSON.stringify(mediaStates)}[args[0]];
-  if (args[1] !== 'status' && !(args[0] === 'hand' ? ['raise','lower'] : ['toggle']).includes(args[1])) process.exit(64);
+  if (!['status','toggle'].includes(args[1])) process.exit(64);
   if (args[1] === 'status') {
     const current = JSON.parse(fs.readFileSync(${JSON.stringify(state)}, 'utf8'));
     console.log(JSON.stringify({[field]: current[field]}));
-  } else if (['toggle','raise','lower'].includes(args[1])) {
+  } else if (args[1] === 'toggle') {
     async function toggle() {
       const deadline = Date.now() + 5000;
       while (!fs.existsSync(${JSON.stringify(release)})) {
@@ -262,7 +354,7 @@ for (const media of ["mic", "camera", "hand"]) {
         process.exit(6);
       }
       const previous = JSON.parse(fs.readFileSync(${JSON.stringify(state)}, 'utf8'));
-      const next = args[0] === 'hand' ? (args[1] === 'raise' ? 'raised' : 'lowered') : (previous[field] === inactive ? active : inactive);
+      const next = previous[field] === inactive ? active : inactive;
       fs.writeFileSync(${JSON.stringify(state)}, JSON.stringify({...previous, [field]:next}));
       console.log(JSON.stringify({[field]:next,action:args[1],success:true,focus_unchanged:true}));
     }
@@ -351,7 +443,7 @@ for (const media of ["mic", "camera", "hand"]) {
     assert.equal((await readFile(calls, "utf8")).trim().split("\n").length, reads.length);
     for (const line of reads) {
       const args = JSON.parse(line);
-      assert.ok(args[1] === "status" || (args[0] === "hand" ? ["raise", "lower"] : ["toggle"]).includes(args[1]));
+      assert.ok(["status", "toggle"].includes(args[1]));
       assert.ok(["mic", "camera", "hand"].includes(args[0]));
       assert.deepEqual(args, [args[0], args[1], "--json"]);
     }

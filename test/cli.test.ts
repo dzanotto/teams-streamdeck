@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtemp, writeFile, readFile, rm, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getEventListeners } from "node:events";
+import { setTimeout as delay } from "node:timers/promises";
 import { readMedia, toggleMedia, endCall } from "../src/cli.ts";
+import { StatusMonitor } from "../src/monitor.ts";
 
   for (const media of ["mic", "camera"] as const) {
   const field = media === "mic" ? "microphone" : "camera";
@@ -68,6 +71,62 @@ test("call end invokes the exact command without a shell and preserves refusal r
   assert.deepEqual(await endCall(file), { success: false, snapshot: { status: "unknown", reason: "all_calls_on_hold" } });
   assert.equal((await endCall("teams")).snapshot.reason, "absolute_path_required");
   assert.equal((await endCall("/does-not-exist/teams")).snapshot.reason, "executable_missing");
+});
+
+for (const media of ["mic", "camera", "hand"] as const) {
+  test(`${media}: cancels a hung poll before dispatch, waits for process exit, and discards partial output`, { timeout: 10000 }, async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), "teams-cli-cancel-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const file = join(dir, "fake teams"), ready = join(dir, "ready");
+    await writeFile(file, `#!${process.execPath}
+const fs = require('node:fs');
+process.stdout.write('{"microphone":"muted","camera":"off","hand":"lowered"}\\n', () => fs.writeFileSync(${JSON.stringify(ready)}, String(process.pid)));
+setInterval(() => {}, 1000);
+`);
+    await chmod(file, 0o755);
+    let signal!: AbortSignal;
+    const seen: string[] = [];
+    const monitor = new StatusMonitor((value) => { signal = value; return readMedia(file, media, 8000, value); });
+    const stop = monitor.subscribe((snapshot) => seen.push(snapshot.status));
+    t.after(stop);
+    const deadline = Date.now() + 4000;
+    let pid = 0;
+    while (!pid) {
+      pid = await readFile(ready, "utf8").then(Number, () => 0);
+      assert.ok(Date.now() < deadline, "fake CLI failed to start");
+      if (!pid) await delay(10);
+    }
+    const pending = monitor.execute(async () => {
+      assert.throws(() => process.kill(pid, 0), { code: "ESRCH" }, "action overlapped the status process");
+      assert.equal(getEventListeners(signal, "abort").length, 0);
+      return { success: true, snapshot: { status: "unmuted" } };
+    });
+    // This deadline is well below the fake read's timeout. The PID assertion,
+    // rather than a narrow speed threshold, proves the no-overlap guarantee.
+    const timer = new AbortController();
+    try {
+      const result = await Promise.race([pending, delay(3000, "timed_out", { signal: timer.signal })]);
+      assert.notEqual(result, "timed_out");
+      assert.deepEqual(seen, ["checking", "toggling", "unmuted"]);
+    } finally { timer.abort(); }
+  });
+}
+
+test("pre-aborted status reads never spawn; completed reads remove their abort handler", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "teams-cli-aborted-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = join(dir, "teams"), calls = join(dir, "calls");
+  await writeFile(file, `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(calls)}, 'read\\n');console.log('{"microphone":"muted"}');\n`);
+  await chmod(file, 0o755);
+  const canceled = new AbortController();
+  canceled.abort();
+  assert.deepEqual(await readMedia(file, "mic", undefined, canceled.signal), { status: "unknown", reason: "command_canceled" });
+  await assert.rejects(readFile(calls), { code: "ENOENT" });
+  const completed = new AbortController();
+  assert.equal((await readMedia(file, "mic", undefined, completed.signal)).status, "muted");
+  assert.equal(getEventListeners(completed.signal, "abort").length, 0);
+  completed.abort();
+  assert.equal(await readFile(calls, "utf8"), "read\n");
 });
 
 test("a timed-out call end never trusts partial success or retries the command", async (t) => {

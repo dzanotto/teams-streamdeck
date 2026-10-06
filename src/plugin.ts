@@ -1,9 +1,10 @@
 import streamDeck, { action, SingletonAction, type WillAppearEvent, type WillDisappearEvent,
   type DidReceiveSettingsEvent, type PropertyInspectorDidAppearEvent, type KeyAction,
   type SendToPluginEvent, type KeyDownEvent } from "@elgato/streamdeck";
-import { readMedia, toggleMedia, toggleHand, endCall } from "./cli.ts";
+import { readMedia, toggleMedia, endCall } from "./cli.ts";
 import { StatusMonitor } from "./monitor.ts";
 import { CallEndController } from "./call.ts";
+import { PressTiming } from "./timing.ts";
 import { presentation, renderSvg, type Control, type Snapshot } from "./status.ts";
 
 declare const __DEFAULT_CLI_PATH__: string;
@@ -51,14 +52,17 @@ class ControlAction extends SingletonAction<Settings> {
   }
 
   override async onKeyDown(ev: KeyDownEvent<Settings>): Promise<void> {
+    const timing = new PressTiming();
     const binding = this.bindings.get(ev.action.id);
     if (!binding) return;
     const isCurrent = () => this.bindings.get(ev.action.id) === binding;
     const controller = this.monitors.get(binding.path);
     const control = this.media;
-    const result = control === "hand"
-      ? await (controller instanceof StatusMonitor ? controller.execute(() => toggleHand(binding.path, isCurrent), isCurrent) : undefined)
-      : await controller?.execute(() => control === "call" ? endCall(binding.path) : toggleMedia(binding.path, control), isCurrent);
+    const result = await controller?.execute(
+      () => control === "call" ? endCall(binding.path, undefined, timing) : toggleMedia(binding.path, control, undefined, timing),
+      isCurrent, timing
+    );
+    streamDeck.logger.info("button_timing", JSON.stringify(timing.report(control)));
     if (!result) return;
     streamDeck.logger.info(this.media, this.media === "call" ? "end" : "toggle", result.success ? "confirmed" : "failed", result.snapshot.reason ?? "");
     if (!result.success && this.bindings.get(ev.action.id) === binding) {
@@ -74,7 +78,7 @@ class ControlAction extends SingletonAction<Settings> {
     let monitor = this.monitors.get(path);
     if (!monitor) {
       const control = this.media;
-      monitor = control === "call" ? new CallEndController() : new StatusMonitor(() => readMedia(path, control));
+      monitor = control === "call" ? new CallEndController() : new StatusMonitor((signal) => readMedia(path, control, undefined, signal));
       this.monitors.set(path, monitor);
     }
     const binding: Binding = { key, path, unsubscribe: () => {} };

@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtemp, writeFile, readFile, rm, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readMedia, toggleHand } from "../src/cli.ts";
-import { parseStatus, parseHandAction, presentation, renderSvg } from "../src/status.ts";
+import { readMedia, toggleMedia } from "../src/cli.ts";
+import { parseStatus, parseToggle, presentation, renderSvg } from "../src/status.ts";
+import { PressTiming } from "../src/timing.ts";
 
 test("hand status accepts only hand states and preserves read failures", () => {
   for (const [hand, code] of [["raised", 0], ["lowered", 0], ["unknown", 2], ["ambiguous", 2], ["permission_denied", 3], ["not_running", 4], ["unknown", 5]] as const) {
@@ -23,26 +24,26 @@ test("hand status accepts only hand states and preserves read failures", () => {
   assert.equal(parseStatus(all, 0, "camera").status, "on");
 });
 
-test("hand actions require the requested action, matching final state, and preserved focus", () => {
-  for (const [action, hand, opposite] of [["raise", "raised", "lowered"], ["lower", "lowered", "raised"]] as const) {
-    const confirmed = { hand, action, success: true, focus_unchanged: true };
+test("hand toggles require the toggle action, a known hand state, and preserved focus", () => {
+  for (const hand of ["raised", "lowered"] as const) {
+    const confirmed = { hand, action: "toggle", success: true, focus_unchanged: true };
     // The CLI can confirm a no-op if another controller already reached the target.
-    assert.deepEqual(parseHandAction(JSON.stringify({ ...confirmed, changed: false, action_attempted: false }), 0, action), {
+    assert.deepEqual(parseToggle(JSON.stringify({ ...confirmed, changed: false, action_attempted: false }), 0, "hand"), {
       success: true, snapshot: { status: hand, reason: undefined }
     });
     for (const [state, code] of [["unknown", 6], ["ambiguous", 6], ["permission_denied", 3], ["not_running", 4], ["unknown", 5]] as const) {
-      assert.deepEqual(parseHandAction(JSON.stringify({ hand: state, action, success: false, reason: "example" }), code, action), {
+      assert.deepEqual(parseToggle(JSON.stringify({ hand: state, action: "toggle", success: false, reason: "example" }), code, "hand"), {
         success: false, snapshot: { status: state, reason: "example" }
       });
     }
     for (const [data, code] of [
       [null, 0], [{ hand }, 0], [confirmed, 6], [confirmed, 64],
-      [{ ...confirmed, hand: opposite }, 0], [{ ...confirmed, success: false }, 0],
-      [{ ...confirmed, action: "toggle" }, 0], [{ ...confirmed, action: action === "raise" ? "lower" : "raise" }, 0],
+      [{ ...confirmed, hand: "unknown" }, 0], [{ ...confirmed, success: false }, 0],
+      [{ ...confirmed, action: "raise" }, 0], [{ ...confirmed, action: "lower" }, 0],
       [{ ...confirmed, focus_unchanged: false }, 0], [{ ...confirmed, focus_unchanged: undefined }, 0],
       [{ ...confirmed, hand: undefined, camera: "on" }, 0]
     ] as const) {
-      assert.deepEqual(parseHandAction(JSON.stringify(data), code, action), {
+      assert.deepEqual(parseToggle(JSON.stringify(data), code, "hand"), {
         success: false, snapshot: { status: "unknown", reason: "invalid_cli_response" }
       });
     }
@@ -79,49 +80,50 @@ ${body}
   return { file, calls: async () => (await readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line)) };
 }
 
-test("hand presses read fresh state and invoke exactly one raise or lower without a shell", async (t) => {
-  for (const [initial, action, target] of [["lowered", "raise", "raised"], ["raised", "lower", "lowered"]]) {
+test("hand presses invoke exactly one native toggle and record one command span", async (t) => {
+  for (const target of ["raised", "lowered"]) {
     const { file, calls } = await fakeCli(t, `
-if (args[1] === 'status') console.log(JSON.stringify({hand:'${initial}'}));
-else console.log(JSON.stringify({hand:'${target}',action:'${action}',success:true,focus_unchanged:true}));`);
-    assert.deepEqual(await toggleHand(file), { success: true, snapshot: { status: target, reason: undefined } });
-    assert.deepEqual(await calls(), [["hand", "status", "--json"], ["hand", action, "--json"]]);
+if (JSON.stringify(args) !== '["hand","toggle","--json"]') process.exit(64);
+console.log(JSON.stringify({hand:'${target}',action:'toggle',success:true,focus_unchanged:true}));`);
+    const timing = new PressTiming();
+    assert.deepEqual(await toggleMedia(file, "hand", undefined, timing), { success: true, snapshot: { status: target, reason: undefined } });
+    assert.deepEqual(await calls(), [["hand", "toggle", "--json"]]);
+    assert.deepEqual(timing.report("hand").commands.map((span) => span.command), ["hand toggle --json"]);
+    assert.ok(timing.report("hand").commands[0].complete_ms! >= 0);
   }
 });
 
-test("unknown, ambiguous, malformed, and failed hand reads never dispatch an action", async (t) => {
+test("unknown, ambiguous, malformed, and failed hand toggles never confirm success", async (t) => {
   for (const [hand, code, expected] of [["unknown", 2, "unknown"], ["ambiguous", 2, "ambiguous"], ["permission_denied", 3, "permission_denied"], ["not_running", 4, "not_running"], ["unknown", 5, "unknown"], ["off", 0, "unknown"]] as const) {
-    const { file, calls } = await fakeCli(t, `console.log(JSON.stringify({hand:'${hand}',reason:'example'}));process.exit(${code});`);
-    assert.equal((await toggleHand(file))?.success, false);
+    const { file, calls } = await fakeCli(t, `console.log(JSON.stringify({hand:'${hand}',action:'toggle',success:${code === 0},reason:'example'}));process.exit(${code});`);
+    assert.equal((await toggleMedia(file, "hand")).success, false);
     assert.equal((await readMedia(file, "hand")).status, expected);
-    assert.deepEqual(await calls(), [["hand", "status", "--json"], ["hand", "status", "--json"]]);
+    assert.deepEqual(await calls(), [["hand", "toggle", "--json"], ["hand", "status", "--json"]]);
   }
-  assert.equal((await toggleHand("teams"))?.snapshot.reason, "absolute_path_required");
-  assert.equal((await toggleHand("/does-not-exist/teams"))?.snapshot.reason, "executable_missing");
+  assert.equal((await toggleMedia("teams", "hand")).snapshot.reason, "absolute_path_required");
+  assert.equal((await toggleMedia("/does-not-exist/teams", "hand")).snapshot.reason, "executable_missing");
 });
 
-test("a hand press is canceled if the key disappears or changes path during its fresh read", async (t) => {
-  const { file, calls } = await fakeCli(t, "console.log('{\"hand\":\"lowered\"}');");
-  assert.equal(await toggleHand(file, () => false), undefined);
-  assert.deepEqual(await calls(), [["hand", "status", "--json"]]);
+test("an older CLI without hand toggle support fails without fallback or retry", async (t) => {
+  const { file, calls } = await fakeCli(t, "console.error('Usage: teams hand <raise|lower>');process.exit(64);");
+  assert.deepEqual(await toggleMedia(file, "hand"), { success: false, snapshot: { status: "unknown", reason: "invalid_cli_response" } });
+  assert.deepEqual(await calls(), [["hand", "toggle", "--json"]]);
 });
 
 test("a refused hand action is surfaced without retrying", async (t) => {
   const { file, calls } = await fakeCli(t, `
-if (args[1] === 'status') console.log('{"hand":"lowered"}');
-else { console.log('{"hand":"unknown","action":"raise","success":false,"reason":"verification_timeout"}'); process.exit(6); }`);
-  assert.deepEqual(await toggleHand(file), { success: false, snapshot: { status: "unknown", reason: "verification_timeout" } });
-  assert.deepEqual(await calls(), [["hand", "status", "--json"], ["hand", "raise", "--json"]]);
+console.log('{"hand":"unknown","action":"toggle","success":false,"reason":"verification_timeout"}'); process.exit(6);`);
+  assert.deepEqual(await toggleMedia(file, "hand"), { success: false, snapshot: { status: "unknown", reason: "verification_timeout" } });
+  assert.deepEqual(await calls(), [["hand", "toggle", "--json"]]);
 });
 
 test("a hung hand read or action never trusts partial output or retries", async (t) => {
-  for (const hungOperation of ["status", "raise"]) {
+  for (const hungOperation of ["status", "toggle"]) {
     const { file, calls } = await fakeCli(t, `
-console.log(JSON.stringify(args[1] === 'status' ? {hand:'lowered'} : {hand:'raised',action:'raise',success:true,focus_unchanged:true}));
+console.log(JSON.stringify(args[1] === 'status' ? {hand:'lowered'} : {hand:'raised',action:'toggle',success:true,focus_unchanged:true}));
 if (args[1] === '${hungOperation}') setInterval(()=>{},1000);`);
-    assert.deepEqual(await toggleHand(file, () => true, 300), {
-      success: false, snapshot: { status: "unknown", reason: "command_terminated" }
-    });
-    assert.deepEqual(await calls(), hungOperation === "status" ? [["hand", "status", "--json"]] : [["hand", "status", "--json"], ["hand", "raise", "--json"]]);
+    const result = hungOperation === "status" ? await readMedia(file, "hand", 300) : (await toggleMedia(file, "hand", 300)).snapshot;
+    assert.deepEqual(result, { status: "unknown", reason: "command_terminated" });
+    assert.deepEqual(await calls(), [["hand", hungOperation, "--json"]]);
   }
 });

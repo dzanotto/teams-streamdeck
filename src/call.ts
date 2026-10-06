@@ -1,4 +1,5 @@
 import type { ActionResult, Snapshot } from "./status.ts";
+import type { PressTiming } from "./timing.ts";
 
 type Listener = (snapshot: Snapshot) => void;
 
@@ -23,16 +24,21 @@ export class CallEndController {
     };
   }
 
-  async execute(command: () => Promise<ActionResult>, isCurrent = () => true): Promise<ActionResult | undefined> {
-    if (this.busy || !this.listeners.size || !isCurrent()) return;
+  async execute(command: () => Promise<ActionResult>, isCurrent = () => true, timing?: PressTiming): Promise<ActionResult | undefined> {
+    if (this.busy) { timing?.ignore("busy"); return; }
+    if (!this.listeners.size || !isCurrent()) { timing?.ignore("unavailable"); return; }
     this.busy = true;
+    timing?.mark("accepted");
     const generation = this.generation;
     clearTimeout(this.reset);
     this.publish({ status: "ending" });
     let result: ActionResult;
+    timing?.mark("command_started");
     try { result = await command(); }
     catch { result = { success: false, snapshot: { status: "unknown", reason: "call_end_failed" } }; }
+    timing?.mark("command_completed");
     this.busy = false;
+    timing?.ready(result);
     if (generation === this.generation && this.listeners.size) {
       this.publish(result.snapshot);
       if (result.success) this.reset = setTimeout(() => this.publish({ status: "ready" }), 2000);

@@ -4,8 +4,8 @@
 on macOS, using the existing `teams-cli` executable.
 Press the microphone key to toggle mute through `teams mic toggle --json`, or
 the camera key to turn video on/off through `teams camera toggle --json`.
-Press the hand key to raise or lower your hand through `teams hand raise --json`
-or `teams hand lower --json`. Press **End call** to leave your active call through
+Press the hand key to raise or lower your hand through `teams hand toggle --json`.
+Press **End call** to leave your active call through
 `teams call end --json`.
 
 ## Use
@@ -45,8 +45,9 @@ Teams itself may bring its main window forward as the call window closes.
 ## Build and develop
 
 Requires Node 24+, Stream Deck 7.1+, macOS 13+, and a compiled `teams-cli`.
-The hand button requires a CLI version supporting `hand status`, `hand raise`,
-and `hand lower`. The sibling release executable supports these commands.
+The hand button requires a CLI version supporting `hand status` and `hand toggle`.
+The sibling release executable supports these commands. Older CLIs that only
+support `hand raise`/`hand lower` must be updated; there is no automatic fallback.
 Development dependencies are local to this project; no global Elgato CLI is needed.
 
 ```sh
@@ -87,15 +88,13 @@ transitions and command outcomes, not full CLI output or meeting text.
 
 - Runs `teams mic status --json`, `teams camera status --json`, or
   `teams hand status --json` for observations through `execFile`, with no shell.
-  Microphone and camera keys run the corresponding `toggle --json` on key-down.
+  Microphone, camera, and hand keys run the corresponding `toggle --json` on key-down.
   Key-up does not dispatch a command.
-- **Hand status** performs a fresh `hand status --json` read on key-down, then
-  runs `hand raise --json` if lowered or `hand lower --json` if raised. An unknown,
-  ambiguous, or failed read prevents the action. The CLI rechecks eligibility and
-  verifies the requested state. These are separate CLI invocations; they do not
-  share a call identity across the read and action. The displayed state is never
-  used to choose the command. Successful results must match the requested state.
-  If the key disappears or changes path during the fresh read, the action is canceled.
+- **Hand status** runs one `hand toggle --json` command on key-down, without an
+  extra plug-in status read. The CLI resolves the opposite of the first confirmed
+  own-hand state under its shared action lock, retains call identity, and verifies
+  the result. The displayed state is never used to choose the target. Success
+  requires a confirmed `raised` or `lowered` result with preserved focus.
 - **End call** runs only `teams call end --json`, once on key-down. It leaves your
   participation in the one active, non-held call. The CLI checks call selection
   and verifies completion; missing controls, all-held calls, and multiple active
@@ -108,12 +107,15 @@ transitions and command outcomes, not full CLI output or meeting text.
 - Call-end confirmation follows the CLI's focus policy: a focus change caused by
   leaving the call does not invalidate verified completion. Microphone, camera,
   and hand changes continue to require confirmation that focus was preserved.
-- Microphone and camera keys use the CLI's fresh-state toggle. The CLI requires one eligible non-held call and verifies the resulting state.
-- Polling for a control pauses during its toggle. An existing read finishes first
-  and its result is discarded; all visible keys for that control and executable
+- Microphone, camera, and hand keys use the CLI's fresh-state toggle. The CLI requires one eligible non-held call and verifies the resulting state.
+- Polling for a control pauses during its toggle. An existing background status
+  process is canceled with SIGKILL; dispatch waits for its process and output streams
+  to close, and its result is discarded. All visible keys for that control and executable
   share the toggle result. Microphone, camera, and hand observations stay independent.
   Additional presses while busy are ignored, never queued. A pending toggle is
   canceled before dispatch if its key disappears or its executable path changes.
+  Cancellation never interrupts a dispatched action. Polling for other controls
+  continues independently.
 - The CLI shares an action lock across microphone, camera, hand, and end-call commands.
   If controls are pressed at once, a competing command may report busy; it is not
   queued or automatically retried.
@@ -126,8 +128,9 @@ transitions and command outcomes, not full CLI output or meeting text.
   after five seconds. There is no polling when the last key disappears.
 - Known status expires after 3.5 seconds without another completed observation.
   A hung status subprocess is terminated after 12 seconds; stale/invalid results
-  never become MUTED, OFF, or LOWERED. An in-flight read may finish after a key disappears,
-  but its result is discarded and no further read starts while all keys are hidden.
+  never become MUTED, OFF, or LOWERED. Removing the last visible key also cancels its
+  background read. Its result is discarded, and no further read starts while all
+  keys are hidden. Reappearing keys wait for the old process to close before reading.
 - Background changes made in Teams appear on the next successful read. This is
   polling, not an instantaneous media signal. While the computer or Stream Deck
   is suspended, the plug-in cannot update the physical key.
@@ -138,9 +141,53 @@ transitions and command outcomes, not full CLI output or meeting text.
 - Teams updates can change the Accessibility interface. The CLI's existing
   version/language/minimized-window limits also apply here.
 
+## Button timing logs
+
+Each bound key-down produces one `button_timing` JSON record in the plug-in's
+`logs/com.dario.teams-cli.*.log` files. Timings use a monotonic clock, start when
+the plug-in receives key-down, and are buffered until the controller returns.
+They exclude hardware input transport, physical display refresh, and failure-alert display.
+
+- `press_id` identifies one press; `control` identifies the button type.
+- `outcome` is `confirmed`, `failed`, `canceled` before action dispatch, or
+  `ignored_busy`/`ignored_unavailable`. Confirmed and failed records also include
+  the resulting `status` and any `reason`. Compare successful actions separately
+  from failures and ignored presses.
+- `stages_ms` contains elapsed milliseconds from key-down: `accepted`,
+  `poll_cancel_requested` and `poll_settled` when a background read was active,
+  `command_started`, `command_completed`, and `ready` when the busy guard clears.
+  Absent stages did not occur. `ready` is the total press-to-readiness time for
+  accepted presses, including canceled ones; ignored presses have no `ready` stage.
+- `commands` contains each subprocess's `command`, `dispatch_ms`, `complete_ms`,
+  and `duration_ms`. Dispatch means the spawn request; completion means process
+  and stream closure. Hand presses have one `hand toggle --json` span.
+  The canceled background poll is covered by the cancellation stages, not this list.
+
+The time between `poll_cancel_requested` and `poll_settled` measures cancellation
+and termination waiting. The command spans include CLI startup, Teams checks,
+verification, and cleanup; they do not separate the CLI's internal stages.
+The end-call button unlocks before its two-second ENDED feedback expires.
+
 ## Validation
 
-Unit/process tests cover the status/toggle/raise/lower/end JSON and exit-code contracts, executable
+Native hand-toggle validation on 2026-10-06: the sibling release executable's
+`hand toggle --help` confirms support. All 55 unit/process/UI tests and eight
+built-plug-in integration tests passed, together with type checking, the build,
+and Elgato manifest validation. Tests require one `hand toggle --json` invocation
+and timing span, cover both resulting states and stale displayed state, preserve
+failure/focus checks, and reject older CLI responses without fallback or retry.
+No live Teams action was performed for this change.
+
+Cancellation/timing validation on 2026-10-06: all 55 unit/process/UI tests and
+all eight built-plug-in integration tests passed, along with type checking,
+the build, and local Elgato manifest validation. Fake CLI processes verify that
+a hung poll has exited before action dispatch, canceled output is discarded,
+duplicate presses remain blocked, and timing records contain ordered stages and
+command spans. Profile-change cancellation and polling recovery
+remain covered. No live Teams actions or physical-button latency measurements
+were performed for this change.
+
+Unit/process tests cover the status/toggle/end JSON and exit-code contracts, executable
 paths with spaces and shell metacharacters, exact arguments, subprocess timeouts,
 shared polling and toggles, duplicate presses, stale observations, profile changes,
 permission backoff, and settings-panel message routing.
@@ -151,8 +198,10 @@ shared reads, MUTED/LIVE, OFF/ON, and LOWERED/RAISED image changes, toggles in b
 failed-toggle alerts, inspector messages, changed paths, and stopping polls when
 keys disappear. Each run keeps the other control visible to check that its
 state, settings-panel details, and polling remain independent.
-The hand-specific test verifies fresh-state command selection, refusal of unknown
-state, and cancellation during a fresh read when the key changes executable path.
+The hand-specific test verifies native toggle dispatch despite an outdated
+displayed state, CLI refusals, and completion of an already dispatched action
+when the initiating key changes executable path. Shared monitor tests cover
+canceling pending actions before dispatch on key/path changes.
 The end-call test verifies exact command dispatch, shared busy handling,
 confirmed completion, failed-command alerts, path/profile changes, and the absence
 of polling or automatic retries.
