@@ -78,7 +78,7 @@ export function presentation(snapshot: Snapshot, media: Control = "mic"): { labe
     case "ending": return { label: "ENDING", color: "#8b98a9", detail: "Leaving your call… Additional presses are ignored until this finishes." };
     case "ended": return { label: "ENDED", color: "#62d6ac", detail: "The CLI confirmed that you left the call." };
     case "not_running": return { label: "TEAMS OFF", color: "#8b98a9", detail: "Microsoft Teams is not running." };
-    case "permission_denied": return { label: "ACCESS", color: "#f5c56b", detail: "Enable Accessibility for Stream Deck in System Settings → Privacy & Security → Accessibility. If macOS attributes access to the teams executable, authorize that executable instead, then retry." };
+    case "permission_denied": return { label: "ACCESS", color: "#f5c56b", detail: "Enable Accessibility for Stream Deck in System Settings → Privacy & Security → Accessibility. If macOS attributes access to the teams-cli executable, authorize that executable instead, then retry." };
     case "ambiguous": return { label: "MULTIPLE", color: "#f5c56b", detail: `Teams exposes multiple possible calls or conflicting ${control} controls.` };
     case "setup": return { label: "SETUP", color: "#f5c56b", detail: "Choose an existing, executable teams-cli binary using its absolute path." };
     case "checking": return { label: "CHECKING", color: "#8b98a9", detail: `Reading ${control} status…` };

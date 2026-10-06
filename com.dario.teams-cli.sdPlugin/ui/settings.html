@@ -21,9 +21,9 @@
   <p id="description">Shows the state reported by Microsoft Teams. Press the key to toggle. While TOGGLING is shown, additional presses are ignored.</p>
   <form id="settings">
     <label for="cliPath">Teams CLI executable</label>
-    <input id="cliPath" name="cliPath" type="text" spellcheck="false" autocomplete="off" placeholder="/absolute/path/to/teams" required>
+    <input id="cliPath" name="cliPath" type="text" spellcheck="false" autocomplete="off" placeholder="/opt/homebrew/bin/teams-cli" required>
     <button id="save" type="submit" disabled>Save path</button>
-    <p class="hint">Use the compiled <code>teams</code> executable, not its source folder. <span id="operationHint">Reads refresh automatically while this key is visible.</span></p>
+    <p class="hint">Homebrew installs <code>teams-cli</code> at <code>/opt/homebrew/bin/teams-cli</code> or <code>/usr/local/bin/teams-cli</code>. Use the executable's absolute path. <span id="operationHint">Reads refresh automatically while this key is visible.</span></p>
   </form>
   <div id="status" role="status" aria-live="polite">
     <strong id="label">CONNECTING</strong>

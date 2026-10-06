@@ -2,19 +2,32 @@
 
 **Microphone status**, **Camera status**, **Hand status**, and **End call** keys for Microsoft Teams
 on macOS, using the existing `teams-cli` executable.
-Press the microphone key to toggle mute through `teams mic toggle --json`, or
-the camera key to turn video on/off through `teams camera toggle --json`.
-Press the hand key to raise or lower your hand through `teams hand toggle --json`.
+Press the microphone key to toggle mute through `teams-cli mic toggle --json`, or
+the camera key to turn video on/off through `teams-cli camera toggle --json`.
+Press the hand key to raise or lower your hand through `teams-cli hand toggle --json`.
 Press **End call** to leave your active call through
-`teams call end --json`.
+`teams-cli call end --json`.
 
 ## Use
 
 Install the packaged `com.dario.teams-cli.streamDeckPlugin`, or use the development
 link described below. In Stream Deck, expand **Teams CLI** and drag **Microphone
-status**, **Camera status**, **Hand status**, or **End call** onto an empty key. The executable path
-is prefilled for the sibling `teams-cli` checkout at build time. Change it in the
-key's settings if needed.
+status**, **Camera status**, **Hand status**, or **End call** onto an empty key.
+Install `teams-cli` through Homebrew before configuring the keys. The plug-in
+checks `/opt/homebrew/bin/teams-cli`, then `/usr/local/bin/teams-cli`, when a key
+first appears without a saved path. It uses the first executable file found,
+keeping the stable Homebrew symlink so CLI upgrades do not require a path change.
+Discovery does not depend on Stream Deck's shell `PATH` or the build machine.
+For a custom installation, save its absolute executable path in the key's settings.
+
+Existing keys using the original default
+`/path/to/teams-cli/.build/release/teams` migrate to a detected
+Homebrew executable when they next appear or receive settings. Other saved paths
+are preserved. Saving a path manually also preserves it, including the old release
+path. If Homebrew is unavailable, existing keys keep the old default; new keys use
+the conventional Homebrew path for their architecture. A missing executable
+produces SETUP when a status read or button press tries to run it. Install the CLI
+at the indicated path, or set its actual path manually.
 
 | Key | Meaning |
 | --- | --- |
@@ -37,16 +50,16 @@ key's settings if needed.
 
 Select the key in Stream Deck to see details. For **ACCESS**, enable Stream Deck
 in **System Settings → Privacy & Security → Accessibility**. If macOS instead
-attributes the request to the `teams` binary, add that executable. This launch
+attributes the request to the `teams-cli` binary, add that executable. This launch
 path must be checked independently of terminal permission. The plug-in never
 opens permission dialogs or explicitly activates Teams. When ending a call,
 Teams itself may bring its main window forward as the call window closes.
 
 ## Build and develop
 
-Requires Node 24+, Stream Deck 7.1+, macOS 13+, and a compiled `teams-cli`.
+Requires Node 24+, Stream Deck 7.1+, macOS 13+, and an installed `teams-cli`.
 The hand button requires a CLI version supporting `hand status` and `hand toggle`.
-The sibling release executable supports these commands. Older CLIs that only
+The Homebrew 0.1.1 executable supports these commands. Older CLIs that only
 support `hand raise`/`hand lower` must be updated; there is no automatic fallback.
 Development dependencies are local to this project; no global Elgato CLI is needed.
 
@@ -78,16 +91,16 @@ The link points from Stream Deck's per-user plug-in directory to
 After source changes, rebuild and repeat the background restart command. The
 standard `npm run restart` is also available through Elgato's CLI.
 
-The compiled Node backend and its dependencies are bundled; `teams` remains an
-external executable. A package built here initially points at this machine's
-CLI path, so a different machine needs its own path set in the key inspector.
+The compiled Node backend and its dependencies are bundled; `teams-cli` remains an
+external executable. Homebrew discovery runs on the machine using the plug-in;
+building and packaging do not require a sibling CLI checkout.
 Logs are in `com.dario.teams-cli.sdPlugin/logs/`; they contain state/reason
 transitions and command outcomes, not full CLI output or meeting text.
 
 ## Behavior and limits
 
-- Runs `teams mic status --json`, `teams camera status --json`, or
-  `teams hand status --json` for observations through `execFile`, with no shell.
+- Runs `teams-cli mic status --json`, `teams-cli camera status --json`, or
+  `teams-cli hand status --json` for observations through `execFile`, with no shell.
   Microphone, camera, and hand keys run the corresponding `toggle --json` on key-down.
   Key-up does not dispatch a command.
 - **Hand status** runs one `hand toggle --json` command on key-down, without an
@@ -95,7 +108,7 @@ transitions and command outcomes, not full CLI output or meeting text.
   own-hand state under its shared action lock, retains call identity, and verifies
   the result. The displayed state is never used to choose the target. Success
   requires a confirmed `raised` or `lowered` result with preserved focus.
-- **End call** runs only `teams call end --json`, once on key-down. It leaves your
+- **End call** runs only `teams-cli call end --json`, once on key-down. It leaves your
   participation in the one active, non-held call. The CLI checks call selection
   and verifies completion; missing controls, all-held calls, and multiple active
   calls are refused. The button never automatically retries an uncertain result.
@@ -169,6 +182,17 @@ verification, and cleanup; they do not separate the CLI's internal stages.
 The end-call button unlocks before its two-second ENDED feedback expires.
 
 ## Validation
+
+Homebrew migration validation on 2026-10-06: all 61 unit/process/UI tests and
+11 built-plug-in integration tests passed, together with type checking, the build,
+and Elgato manifest validation. Tests cover both Homebrew prefixes, stable symlinks,
+missing/non-executable candidates, new-key discovery, migration of the exact old
+default, saved-settings echoes, and manual overrides. Integration tests redirect
+Homebrew and legacy paths to fake CLIs and never operate Teams. The resolver also
+detected this machine's `/opt/homebrew/bin/teams-cli` without invoking it.
+The package was rebuilt and the linked plug-in reloaded in the background. All
+four existing keys saved the Homebrew path; microphone, camera, and hand polling
+reported `teams_not_running`. No live toggle or end-call command was performed.
 
 Native hand-toggle validation on 2026-10-06: the sibling release executable's
 `hand toggle --help` confirms support. All 55 unit/process/UI tests and eight

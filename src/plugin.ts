@@ -2,13 +2,12 @@ import streamDeck, { action, SingletonAction, type WillAppearEvent, type WillDis
   type DidReceiveSettingsEvent, type PropertyInspectorDidAppearEvent, type KeyAction,
   type SendToPluginEvent, type KeyDownEvent } from "@elgato/streamdeck";
 import { readMedia, toggleMedia, endCall } from "./cli.ts";
+import { resolveCliPath, type CliSettings as Settings } from "./cli-path.ts";
 import { StatusMonitor } from "./monitor.ts";
 import { CallEndController } from "./call.ts";
 import { PressTiming } from "./timing.ts";
 import { presentation, renderSvg, type Control, type Snapshot } from "./status.ts";
 
-declare const __DEFAULT_CLI_PATH__: string;
-type Settings = { cliPath?: string };
 type Binding = { unsubscribe: () => void; key: KeyAction<Settings>; path: string; last?: Snapshot; image?: string };
 
 class ControlAction extends SingletonAction<Settings> {
@@ -21,8 +20,7 @@ class ControlAction extends SingletonAction<Settings> {
 
   override async onWillAppear(ev: WillAppearEvent<Settings>): Promise<void> {
     if (!ev.action.isKey()) return;
-    this.bind(ev.action, ev.payload.settings);
-    if (!ev.payload.settings.cliPath) await ev.action.setSettings({ ...ev.payload.settings, cliPath: __DEFAULT_CLI_PATH__ });
+    await this.configure(ev.action, ev.payload.settings);
   }
 
   override onWillDisappear(ev: WillDisappearEvent<Settings>): void {
@@ -31,8 +29,8 @@ class ControlAction extends SingletonAction<Settings> {
     if (this.inspector === ev.action.id) this.inspector = undefined;
   }
 
-  override onDidReceiveSettings(ev: DidReceiveSettingsEvent<Settings>): void {
-    if (ev.action.isKey() && this.bindings.has(ev.action.id)) this.bind(ev.action, ev.payload.settings);
+  override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<Settings>): Promise<void> {
+    if (ev.action.isKey() && this.bindings.has(ev.action.id)) await this.configure(ev.action, ev.payload.settings);
   }
 
   override onPropertyInspectorDidAppear(ev: PropertyInspectorDidAppearEvent<Settings>): void {
@@ -70,8 +68,13 @@ class ControlAction extends SingletonAction<Settings> {
     }
   }
 
-  private bind(key: KeyAction<Settings>, settings: Settings): void {
-    const path = typeof settings.cliPath === "string" ? settings.cliPath.trim() : __DEFAULT_CLI_PATH__;
+  private async configure(key: KeyAction<Settings>, settings: Settings): Promise<void> {
+    const path = resolveCliPath(settings);
+    this.bind(key, path);
+    if (settings.cliPath !== path) await key.setSettings({ ...settings, cliPath: path });
+  }
+
+  private bind(key: KeyAction<Settings>, path: string): void {
     const previous = this.bindings.get(key.id);
     if (previous?.path === path) return;
     previous?.unsubscribe();
