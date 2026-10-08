@@ -40,7 +40,7 @@ for (const media of ["mic", "camera", "hand", "call"]) {
     assert.ok(element("operationHint").textContent.includes(media === "call" ? "only when you press" : "refresh automatically"));
     element("cliPath").value = "/new path/teams";
     element("settings").onsubmit({ preventDefault() {} });
-    assert.deepEqual(sent[3], { event: "setSettings", action, context: "key-a", payload: { cliPath: "/new path/teams", cliPathManual: true, extra: "preserved" } });
+    assert.deepEqual(sent[3], { event: "setSettings", action, context: "key-a", payload: { cliPath: "/new path/teams", extra: "preserved" } });
     assert.equal(element("detail").textContent, media === "call" ? "Path saved. Press the key to leave your active call." : `Path saved. Reading ${control} status…`);
     element("cliPath").value = "relative/path";
     element("settings").onsubmit({ preventDefault() {} });

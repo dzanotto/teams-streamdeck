@@ -49,7 +49,7 @@ window.connectElgatoStreamDeckSocket = (port, uuid, registerEvent, info, actionI
     const path = input.value.trim();
     input.setCustomValidity(path.startsWith("/") ? "" : "Enter an absolute path beginning with /.");
     if (!input.reportValidity() || socket.readyState !== WebSocket.OPEN) return;
-    settings = { ...settings, cliPath: path, cliPathManual: true };
+    settings = { ...settings, cliPath: path };
     send("setSettings", settings);
     detail.textContent = isCallEnd ? "Path saved. Press the key to leave your active call." : `Path saved. Reading ${control} status…`;
   };

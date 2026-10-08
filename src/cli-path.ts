@@ -1,9 +1,8 @@
 import { accessSync, constants, statSync } from "node:fs";
 
+// Older settings may include cliPathManual; every saved path is now preserved.
 export type CliSettings = { cliPath?: string; cliPathManual?: boolean };
 
-// Only this exact default from the original package is eligible for migration.
-export const LEGACY_CLI_PATH = "/path/to/teams-cli/.build/release/teams";
 export const HOMEBREW_CLI_PATHS = ["/opt/homebrew/bin/teams-cli", "/usr/local/bin/teams-cli"] as const;
 
 export function findHomebrewCli(candidates: readonly string[] = HOMEBREW_CLI_PATHS): string | undefined {
@@ -19,8 +18,7 @@ export function findHomebrewCli(candidates: readonly string[] = HOMEBREW_CLI_PAT
 
 export function resolveCliPath(settings: CliSettings, discover = findHomebrewCli): string {
   const configured = typeof settings.cliPath === "string" ? settings.cliPath.trim() : "";
-  if (configured && (configured !== LEGACY_CLI_PATH || settings.cliPathManual === true)) return configured;
-  // Preserve a working legacy installation when Homebrew is not installed yet.
+  if (configured) return configured;
   // New keys get a conventional path and SETUP feedback if the binary is missing.
-  return discover() ?? (configured || HOMEBREW_CLI_PATHS[process.arch === "arm64" ? 0 : 1]);
+  return discover() ?? HOMEBREW_CLI_PATHS[process.arch === "arm64" ? 0 : 1];
 }

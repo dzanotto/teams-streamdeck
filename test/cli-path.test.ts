@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, chmod, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findHomebrewCli, resolveCliPath, LEGACY_CLI_PATH, HOMEBREW_CLI_PATHS } from "../src/cli-path.ts";
+import { findHomebrewCli, resolveCliPath, HOMEBREW_CLI_PATHS } from "../src/cli-path.ts";
 
 test("discovery keeps the stable executable symlink across Homebrew upgrades", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "teams-cli-discovery-"));
@@ -41,18 +41,19 @@ test("new or empty settings use either detected Homebrew prefix", () => {
   }
 });
 
-test("only the exact legacy default migrates, and only when Homebrew is available", () => {
-  assert.equal(resolveCliPath({ cliPath: LEGACY_CLI_PATH }, () => HOMEBREW_CLI_PATHS[0]), HOMEBREW_CLI_PATHS[0]);
-  assert.equal(resolveCliPath({ cliPath: LEGACY_CLI_PATH }, () => undefined), LEGACY_CLI_PATH);
-  assert.equal(resolveCliPath({ cliPath: "/other/teams-cli/.build/release/teams" }, () => HOMEBREW_CLI_PATHS[0]), "/other/teams-cli/.build/release/teams");
+test("saved paths are preserved regardless of old manual-path flags", () => {
+  const cliPath = "/custom/teams-cli/.build/release/teams";
+  for (const cliPathManual of [undefined, false, true]) {
+    assert.equal(resolveCliPath({ cliPath, cliPathManual }, () => HOMEBREW_CLI_PATHS[0]), cliPath);
+    assert.equal(resolveCliPath({ cliPath, cliPathManual }, () => undefined), cliPath);
+  }
 });
 
-test("custom paths take precedence even when missing, and manual legacy paths stay selectable", () => {
+test("custom paths take precedence even when missing, without probing Homebrew", () => {
   const unexpectedDiscovery = () => { throw new Error("Custom settings must not probe Homebrew"); };
   assert.equal(resolveCliPath({ cliPath: " /custom path/teams-cli " }, unexpectedDiscovery), "/custom path/teams-cli");
   assert.equal(resolveCliPath({ cliPath: "/missing/teams-cli" }, unexpectedDiscovery), "/missing/teams-cli");
   assert.equal(resolveCliPath({ cliPath: "relative" }, unexpectedDiscovery), "relative");
-  assert.equal(resolveCliPath({ cliPath: LEGACY_CLI_PATH, cliPathManual: true }, unexpectedDiscovery), LEGACY_CLI_PATH);
 });
 
 test("without Homebrew a new key gets the native platform's conventional path", () => {

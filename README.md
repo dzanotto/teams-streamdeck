@@ -20,14 +20,12 @@ keeping the stable Homebrew symlink so CLI upgrades do not require a path change
 Discovery does not depend on Stream Deck's shell `PATH` or the build machine.
 For a custom installation, save its absolute executable path in the key's settings.
 
-Existing keys using the original default
-`/path/to/teams-cli/.build/release/teams` migrate to a detected
-Homebrew executable when they next appear or receive settings. Other saved paths
-are preserved. Saving a path manually also preserves it, including the old release
-path. If Homebrew is unavailable, existing keys keep the old default; new keys use
-the conventional Homebrew path for their architecture. A missing executable
-produces SETUP when a status read or button press tries to run it. Install the CLI
-at the indicated path, or set its actual path manually.
+Saved executable paths are always preserved. If a key still points to an old
+development build, update its path in the key's settings. Without a detected
+Homebrew executable, new keys use the conventional Homebrew path for their
+architecture. A missing executable produces SETUP when a status read or button
+press tries to run it. Install the CLI at the indicated path, or set its actual
+path manually.
 
 | Key | Meaning |
 | --- | --- |
@@ -182,6 +180,14 @@ verification, and cleanup; they do not separate the CLI's internal stages.
 The end-call button unlocks before its two-second ENDED feedback expires.
 
 ## Validation
+
+Personal-path cleanup on 2026-10-08 removed automatic migration from the private
+development default. Saved paths are now preserved regardless of the old
+manual-path flag. The migration checks described below are historical; current
+tests cover saved-path preservation, Homebrew discovery, and manual overrides.
+All 61 unit/process/UI tests and 11 built-plug-in integration tests passed,
+along with type checking, the build, Elgato manifest validation, and packaging.
+No live Teams action was performed.
 
 Homebrew migration validation on 2026-10-06: all 61 unit/process/UI tests and
 11 built-plug-in integration tests passed, together with type checking, the build,

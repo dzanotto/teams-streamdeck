@@ -121,11 +121,10 @@ async function launchPlugin(t, dir, cli, action, cliFixtures) {
   const preload = [];
   if (cliFixtures) {
     // Redirect discovery and execution in this child only. These tests must never
-    // invoke the developer's actual Homebrew or legacy Teams executables.
+    // invoke the developer's actual Homebrew Teams executables.
     const mapping = {
       "/opt/homebrew/bin/teams-cli": join(dir, "missing-homebrew-cli"),
       "/usr/local/bin/teams-cli": join(dir, "missing-homebrew-cli"),
-      "/path/to/teams-cli/.build/release/teams": join(dir, "missing-legacy-cli"),
       ...cliFixtures
     };
     const shim = join(dir, "cli-fixtures.mjs");
@@ -196,10 +195,10 @@ syncBuiltinESMExports();
 }
 
 for (const homebrewPath of ["/opt/homebrew/bin/teams-cli", "/usr/local/bin/teams-cli"]) {
-  test(`Homebrew ${homebrewPath}: new keys and legacy keys share the detected CLI; overrides survive`, { timeout: 15000 }, async (t) => {
+  test(`Homebrew ${homebrewPath}: unconfigured keys share the detected CLI; saved paths survive`, { timeout: 15000 }, async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "teams-streamdeck-homebrew-"));
     const cli = join(dir, "teams-cli"), calls = join(dir, "calls.jsonl");
-    const legacyPath = "/path/to/teams-cli/.build/release/teams";
+    const customPath = join(dir, "missing-custom-cli");
     await writeFile(cli, `#!${process.execPath}
 const fs = require('node:fs');
 const args = process.argv.slice(2);
@@ -211,8 +210,9 @@ else process.exit(64);
     const { messages, waitFor, send, imageHas, payload } = await launchPlugin(t, dir, cli, "com.dario.teams-cli.mic-status", { [homebrewPath]: cli });
     const withSettings = (settings) => ({ payload: { ...payload, settings } });
     send("willAppear", "new", withSettings({ extra: "preserved" }));
-    send("willAppear", "legacy", withSettings({ cliPath: legacyPath, extra: "preserved" }));
-    for (const key of ["new", "legacy"]) {
+    send("willAppear", "empty", withSettings({ cliPath: "  ", extra: "preserved" }));
+    send("willAppear", "custom", withSettings({ cliPath: customPath, cliPathManual: false }));
+    for (const key of ["new", "empty"]) {
       const saved = await waitFor((m) => m.event === "setSettings" && m.context === key);
       assert.deepEqual(saved.payload, { cliPath: homebrewPath, extra: "preserved" });
       await waitFor((m) => imageHas(m, key, "MUTED"));
@@ -220,37 +220,39 @@ else process.exit(64);
     }
     const callsBefore = (await readFile(calls, "utf8")).trim().split("\n").map(JSON.parse);
     assert.deepEqual(callsBefore, [["mic", "status", "--json"]], "keys must share the resolved executable's poll");
-    send("keyDown", "legacy");
-    await waitFor((m) => imageHas(m, "legacy", "LIVE"));
+    await waitFor((m) => imageHas(m, "custom", "SETUP"));
+    assert.ok(!messages.some((m) => m.event === "setSettings" && m.context === "custom"));
+    send("keyDown", "empty");
+    await waitFor((m) => imageHas(m, "empty", "LIVE"));
     await waitFor((m) => imageHas(m, "new", "LIVE"));
     const invocations = (await readFile(calls, "utf8")).trim().split("\n").map(JSON.parse);
     assert.deepEqual(invocations.filter((args) => args[1] === "toggle"), [["mic", "toggle", "--json"]]);
     assert.equal(messages.filter((m) => m.event === "setSettings").length, 2, "echoed settings must not cause a write loop");
 
-    // A manual override must take effect even if it selects the exact old path.
+    // A saved override must take effect even when the executable is missing.
     messages.length = 0;
-    send("didReceiveSettings", "legacy", withSettings({ cliPath: legacyPath, cliPathManual: true }));
-    await waitFor((m) => imageHas(m, "legacy", "SETUP"));
+    send("didReceiveSettings", "empty", withSettings({ cliPath: customPath, cliPathManual: true }));
+    await waitFor((m) => imageHas(m, "empty", "SETUP"));
     assert.ok(!messages.some((m) => m.event === "setSettings"));
-    send("willDisappear", "legacy");
+    send("willDisappear", "empty");
+    send("willDisappear", "custom");
     send("willDisappear", "new");
   });
 }
 
-test("without Homebrew, legacy keys keep their path and new keys show SETUP", { timeout: 10000 }, async (t) => {
+test("without Homebrew, configured keys keep their path and new keys show SETUP", { timeout: 10000 }, async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "teams-streamdeck-no-homebrew-"));
   const cli = join(dir, "teams-cli");
-  const legacyPath = "/path/to/teams-cli/.build/release/teams";
   await writeFile(cli, `#!${process.execPath}\nconsole.log('{"microphone":"muted"}');\n`, { mode: 0o755 });
-  const { messages, waitFor, send, imageHas, payload } = await launchPlugin(t, dir, cli, "com.dario.teams-cli.mic-status", { [legacyPath]: cli });
-  send("willAppear", "legacy", { payload: { ...payload, settings: { cliPath: legacyPath } } });
+  const { messages, waitFor, send, imageHas, payload } = await launchPlugin(t, dir, cli, "com.dario.teams-cli.mic-status", {});
+  send("willAppear", "configured", { payload: { ...payload, settings: { cliPath: cli } } });
   send("willAppear", "new", { payload: { ...payload, settings: {} } });
-  await waitFor((m) => imageHas(m, "legacy", "MUTED"));
+  await waitFor((m) => imageHas(m, "configured", "MUTED"));
   await waitFor((m) => imageHas(m, "new", "SETUP"));
   const saved = await waitFor((m) => m.event === "setSettings" && m.context === "new");
   assert.equal(saved.payload.cliPath, process.arch === "arm64" ? "/opt/homebrew/bin/teams-cli" : "/usr/local/bin/teams-cli");
-  assert.ok(!messages.some((m) => m.event === "setSettings" && m.context === "legacy"));
-  send("willDisappear", "legacy");
+  assert.ok(!messages.some((m) => m.event === "setSettings" && m.context === "configured"));
+  send("willDisappear", "configured");
   send("willDisappear", "new");
 });
 
