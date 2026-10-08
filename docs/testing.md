@@ -3,6 +3,24 @@
 See the [README](../README.md#development) for build and test commands. This page
 separates automated coverage from observations on a particular live setup.
 
+## Continuous integration
+
+[GitHub Actions](../.github/workflows/ci.yml) runs on pull requests, pushes to
+`main`, and manual dispatches. Each run uses Node 24 from `.nvmrc` on macOS 15
+Apple Silicon and Intel runners, installs dependencies with `npm ci`, and runs
+typechecking, unit/process/UI tests, and bundled-plugin integration tests.
+
+Each job validates and packages the plug-in, then checks that the installer can
+be extracted, contains the backend and matching project/third-party license
+files, and excludes logs. The installer is retained as a workflow artifact for
+seven days. Elgato schema update checks are disabled so validation uses the
+project's locked CLI dependencies.
+
+Tests use fake CLIs and a local WebSocket server. CI does not require Teams,
+Stream Deck, a real `teams-cli` installation, or Accessibility permission, and
+does not establish live-device compatibility. The workflow uses a read-only
+repository token and official actions pinned to commit IDs.
+
 ## Automated coverage
 
 Tests use `node:test` and `node:assert/strict`. Unit/process/UI tests run with

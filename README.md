@@ -132,6 +132,10 @@ root. Build tools are project dependencies; a global Elgato CLI and a real
 `teams-cli` installation are not required for building or automated tests.
 Integration tests need permission to listen on localhost.
 
+[CI](.github/workflows/ci.yml) runs the checks and verifies installer packaging
+on Apple Silicon and Intel macOS runners. See the [CI notes](docs/testing.md#continuous-integration)
+for triggers and build artifacts.
+
 See [development notes](docs/development.md) for local linking, reloads, CLI
 commands, polling, and timing logs, and [testing notes](docs/testing.md) for
 validation details.

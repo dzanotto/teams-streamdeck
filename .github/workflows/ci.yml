@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test and package (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit, process, and UI tests
+        run: npm test
+
+      - name: Build and run bundled-plugin integration tests
+        run: npm run test:integration
+
+      - name: Validate plugin
+        run: npm run validate -- --no-update-check
+
+      - name: Package installer
+        run: npm run pack -- --no-update-check --output dist
+
+      - name: Verify installer contents
+        run: |
+          archive=dist/com.dario.teams-cli.streamDeckPlugin
+          unpacked="$(mktemp -d)"
+          trap 'rm -rf "$unpacked"' EXIT
+          unzip -t "$archive"
+          unzip -q "$archive" -d "$unpacked"
+          plugin="$unpacked/com.dario.teams-cli.sdPlugin"
+          test -s "$plugin/bin/plugin.js"
+          cmp LICENSE "$plugin/bin/LICENSE"
+          cmp com.dario.teams-cli.sdPlugin/bin/THIRD_PARTY_NOTICES.txt "$plugin/bin/THIRD_PARTY_NOTICES.txt"
+          test ! -d "$plugin/logs"
+
+      - name: Upload installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: teams-streamdeck-${{ matrix.arch }}
+          path: dist/com.dario.teams-cli.streamDeckPlugin
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
