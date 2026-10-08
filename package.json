@@ -4,6 +4,16 @@
   "private": true,
   "type": "module",
   "description": "Microsoft Teams microphone, camera, hand, and call controls for Stream Deck via teams-cli",
+  "author": "Dario Zanotto",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dzanotto/teams-streamdeck.git"
+  },
+  "homepage": "https://github.com/dzanotto/teams-streamdeck#readme",
+  "bugs": {
+    "url": "https://github.com/dzanotto/teams-streamdeck/issues"
+  },
   "engines": {
     "node": ">=24"
   },
