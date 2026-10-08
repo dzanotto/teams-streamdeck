@@ -9,6 +9,18 @@ import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { WebSocketServer } from "ws";
 
+test("built plug-in includes the project license and complete bundled dependency licenses", async () => {
+  const bin = "com.dario.teams-cli.sdPlugin/bin";
+  assert.deepEqual(await readFile(`${bin}/LICENSE`), await readFile("LICENSE"));
+  const notices = await readFile(`${bin}/THIRD_PARTY_NOTICES.txt`, "utf8");
+  for (const name of ["@elgato/streamdeck", "@elgato/utils", "@elgato/schemas", "ws", "zod"]) {
+    const root = `node_modules/${name}`;
+    const { version } = JSON.parse(await readFile(`${root}/package.json`, "utf8"));
+    assert.ok(notices.includes(`${name}@${version}\n`), `Missing attribution for ${name}`);
+    assert.ok(notices.includes(await readFile(`${root}/LICENSE`, "utf8")), `Missing full license for ${name}`);
+  }
+});
+
 test("end-call button dispatches once, reports results, and never polls or retries", { timeout: 20000 }, async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "teams-streamdeck-call-end-"));
   const cli = join(dir, "fake teams"), calls = join(dir, "calls.jsonl");
