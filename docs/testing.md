@@ -21,6 +21,10 @@ Stream Deck, a real `teams-cli` installation, or Accessibility permission, and
 does not establish live-device compatibility. The workflow uses a read-only
 repository token and official actions pinned to commit IDs.
 
+The [release workflow](../.github/workflows/release.yml) also calls CI at the
+tagged commit after validating release versions. Both architecture jobs must
+pass before publication; see the [release documentation](releases.md).
+
 ## Automated coverage
 
 Tests use `node:test` and `node:assert/strict`. Unit/process/UI tests run with
@@ -51,6 +55,10 @@ It never connects to Teams or a physical Stream Deck.
 The bundled-plugin suite also checks that the project license matches the source
 file and that full license texts and versioned attributions for bundled
 dependencies are included.
+
+Release tests check version/tag mismatches and use a fake `gh` executable to
+exercise checksum generation, draft creation, and publication failure handling.
+They do not call GitHub or publish releases.
 
 ## Live validation scope
 

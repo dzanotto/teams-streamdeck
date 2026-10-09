@@ -30,8 +30,9 @@ Install Node.js separately only when building or developing the plug-in.
    brew install dzanotto/tap/teams-cli
    ```
 
-2. Open `com.dario.teams-cli.streamDeckPlugin` to install it in Stream Deck.
-   If you do not have an installer, [build one from this repository](#development).
+2. [Download the latest release](https://github.com/dzanotto/teams-streamdeck/releases/latest)
+   and open `com.dario.teams-cli.streamDeckPlugin` to install it in Stream Deck.
+   Until the first release is published, [build an installer from this repository](#development).
 3. In Stream Deck, expand **Teams CLI** and drag the desired actions onto keys.
 4. Grant Accessibility access in **System Settings → Privacy & Security → Accessibility**.
    Enable **Stream Deck**. If macOS instead attributes the request to `teams-cli`,
@@ -135,6 +136,9 @@ Integration tests need permission to listen on localhost.
 [CI](.github/workflows/ci.yml) runs the checks and verifies installer packaging
 on Apple Silicon and Intel macOS runners. See the [CI notes](docs/testing.md#continuous-integration)
 for triggers and build artifacts.
+
+To publish an installer, follow the [release steps](docs/releases.md). Pushing a
+matching stable version tag runs CI and publishes the installer and checksum.
 
 See [development notes](docs/development.md) for local linking, reloads, CLI
 commands, polling, and timing logs, and [testing notes](docs/testing.md) for
