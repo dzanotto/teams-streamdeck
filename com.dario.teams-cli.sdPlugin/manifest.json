@@ -2,7 +2,7 @@
   "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
   "UUID": "com.dario.teams-cli",
   "Name": "Teams CLI",
-  "Version": "0.1.0.0",
+  "Version": "0.1.2.0",
   "Author": "Dario",
   "Description": "Controls Microsoft Teams microphone, camera, hand, and call ending using the local teams-cli executable.",
   "Category": "Teams CLI",
