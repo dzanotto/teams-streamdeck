@@ -1,6 +1,6 @@
 {
   "name": "teams-streamdeck",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Microsoft Teams microphone, camera, hand, and call controls for Stream Deck via teams-cli",
