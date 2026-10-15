@@ -96,7 +96,7 @@ Generated bundles, logs, and `.streamDeckPlugin` installers are ignored by Git.
   after five seconds. There is no polling when the last key disappears.
 - Known status expires after 3.5 seconds without another completed observation.
   A hung status subprocess is terminated after 12 seconds; stale/invalid results
-  never become MUTED, OFF, or LOWERED. Removing the last visible key also cancels its
+  never become MUTED, OFF, or DOWN. Removing the last visible key also cancels its
   background read. Its result is discarded, and no further read starts while all
   keys are hidden. Reappearing keys wait for the old process to close before reading.
 - Background changes made in Teams appear on the next successful read. This is
@@ -104,7 +104,7 @@ Generated bundles, logs, and `.streamDeckPlugin` installers are ignored by Git.
   is suspended, the plug-in cannot update the physical key.
 - Uses the CLI's held-call filtering and ambiguity result, without selecting
   window indices or guessing which call to use.
-- Missing controls remain UNKNOWN. LIVE/MUTED, ON/OFF, and RAISED/LOWERED describe Teams UI state,
+- Missing controls remain UNKNOWN. LIVE/MUTED, ON/OFF, and RAISED/DOWN describe Teams UI state,
   not physical hardware switches, audio/video capture, or delivery to other participants.
 - Teams updates can change the Accessibility interface. The CLI's existing
   version/language/minimized-window limits also apply here.

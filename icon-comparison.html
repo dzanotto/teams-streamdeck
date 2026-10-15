@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Teams buttons — before and after</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: #10141b; color: #eef2f7;
+    font: 15px/1.5 system-ui, sans-serif;
+  }
+  main { max-width: 760px; margin: auto; }
+  h1 { font-size: 24px; margin: 0 0 8px; }
+  p { color: #b9c3d1; margin: 0 0 24px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    padding: 16px 12px; border-bottom: 1px solid #303947;
+    text-align: left;
+  }
+  thead th { color: #b9c3d1; font-weight: 500; }
+  th:first-child { width: 38%; }
+  td { text-align: center; }
+  thead th:not(:first-child) { text-align: center; }
+  tbody th { font-weight: 500; }
+  small { display: block; color: #aebaca; font-weight: 400; }
+  svg { display: block; width: 108px; height: 108px; margin: auto; }
+  label { display: block; margin: 20px 0; color: #cbd5e1; }
+  input { vertical-align: middle; accent-color: #62d6ac; }
+  .compact svg { width: 72px; height: 72px; }
+  @media (max-width: 480px) {
+    body { padding: 16px 8px; }
+    th, td { padding: 12px 4px; }
+    svg { width: 88px; height: 88px; }
+  }
+</style>
+<main>
+  <h1>Teams button designs</h1>
+  <p>Bold microphone and camera icons, a consistent hand shape,
+     grey unknown and toggling states, and a distinct end-call button.</p>
+  <label>
+    <input id="size" type="checkbox">
+    Compare at 72 × 72 pixels
+  </label>
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Control / state</th>
+        <th scope="col">Before</th>
+        <th scope="col">After</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+<script>
+const background = "#151c28";
+const colors = {
+  active: "#62d6ac",
+  inactive: "#f07178",
+  neutral: "#8b98a9",
+  unknown: "#f5c56b"
+};
+
+// Existing application geometry.
+const original = {
+  mic: `<rect x="58" y="25" width="28" height="49" rx="14"/>
+    <path d="M46 60v7a26 26 0 0 0 52 0v-7M72 93v15M57 108h30"/>`,
+  camera: `<rect x="30" y="42" width="55" height="50" rx="8"/>
+    <path d="M85 57l29-16v52L85 77z"/>`,
+  hand: `<path d="M47 70V42a7 7 0 0 1 14 0v21-35a7 7 0 0 1
+    14 0v35-31a7 7 0 0 1 14 0v34-21a7 7 0 0 1 14 0v34
+    c0 20-11 31-28 31-12 0-19-5-26-14L32 75a7 7 0 0 1 10-10l12 14"/>`,
+  call: `<path d="M29 61Q72 27 115 61v20q0 5-5 5H94q-5
+    0-5-5V67q-17-9-34 0v14q0 5-5 5H34q-5 0-5-5z"/>`
+};
+
+const redesigned = {
+  mic: `<rect x="56" y="22" width="32" height="54" rx="16"/>
+    <path d="M43 61v8a29 29 0 0 0 58 0v-8M72 98v12M56 110h32"
+      fill="none" stroke="currentColor" stroke-width="8"
+      stroke-linecap="round"/>`,
+  camera: `<rect x="25" y="39" width="65" height="58" rx="10"/>
+    <path d="M96 55l24-15v56L96 81z"/>`,
+  hand: `<g fill="none" stroke="currentColor" stroke-width="6"
+    stroke-linecap="round" stroke-linejoin="round">${original.hand}</g>`,
+  call: original.call
+};
+
+const examples = [
+  ["Microphone", "Live", "mic", "LIVE", "LIVE", "active", ""],
+  ["Microphone", "Muted", "mic", "MUTED", "MUTED", "inactive", "slash"],
+  ["Camera", "On", "camera", "ON", "ON", "active", ""],
+  ["Camera", "Off", "camera", "OFF", "OFF", "inactive", "slash"],
+  ["Hand", "Raised", "hand", "RAISED", "RAISED", "active", "raised"],
+  ["Hand", "Lowered", "hand", "LOWERED", "DOWN", "neutral", "lowered"],
+  ["End call", "Available action", "call", "END CALL", "END CALL", "inactive", "end"],
+  ["Microphone", "Unknown", "mic", "UNKNOWN", "UNKNOWN", "unknown", "unknown"],
+  ["Camera", "Unknown", "camera", "UNKNOWN", "UNKNOWN", "unknown", "unknown"],
+  ["Hand", "Unknown", "hand", "UNKNOWN", "UNKNOWN", "unknown", "unknown"],
+  ["Microphone", "Changing state", "mic", "TOGGLING", "TOGGLING", "neutral", "busy"]
+];
+
+function frame(content, label, color, bg, after, title) {
+  return `<svg xmlns="http://www.w3.org/2000/svg"
+    width="144" height="144" viewBox="0 0 144 144"
+    role="img" aria-label="${title}">
+    <rect width="144" height="144" rx="18" fill="${bg}"/>
+    ${content}
+    <text x="72" y="${after ? 131 : 133}" text-anchor="middle"
+      font-family="Arial, sans-serif" font-weight="bold"
+      font-size="${after ? 18 : 17}" fill="${color}">${label}</text>
+  </svg>`;
+}
+
+function before(row) {
+  const [control, state, media, label, , category, modifier] = row;
+  const color = colors[category];
+  const slash = modifier === "slash"
+    ? `<path d="M39 28l66 76" stroke="${background}" stroke-width="12"/>
+       <path d="M39 28l66 76"/>`
+    : "";
+  return frame(
+    `<g fill="none" stroke="${color}" stroke-width="6"
+      stroke-linecap="round" stroke-linejoin="round">
+      ${original[media]}${slash}</g>`,
+    label, color, background, false, `${control}: ${state}, current design`
+  );
+}
+
+function after(row) {
+  const [control, state, media, , label, category, modifier] = row;
+  if (modifier === "unknown" || modifier === "busy") {
+    const grey = "#a0a0a0";
+    return frame(
+      `<g fill="none" stroke="${grey}" stroke-width="6"
+        stroke-linecap="round" stroke-linejoin="round">${original[media]}</g>`,
+      label, grey, background, false, `${control}: ${state}, proposed design`
+    );
+  }
+  const isEnd = modifier === "end";
+  const bg = isEnd ? "#bc303b" : background;
+  const color = isEnd ? "#ffffff" : modifier === "lowered" ? colors.unknown : colors[category];
+  let symbol = redesigned[media];
+  if (modifier === "slash") {
+    symbol += `<path d="M33 25l78 82" fill="none"
+      stroke="${bg}" stroke-width="17" stroke-linecap="round"/>
+      <path d="M33 25l78 82" fill="none"
+      stroke="currentColor" stroke-width="9" stroke-linecap="round"/>`;
+  }
+
+  return frame(
+    `<g fill="${color}" style="color:${color}">${symbol}</g>`,
+    label, color, bg, true, `${control}: ${state}, proposed design`
+  );
+}
+
+document.getElementById("rows").innerHTML = examples.map(row => `
+  <tr>
+    <th scope="row">${row[0]}<small>${row[1]}</small></th>
+    <td>${before(row)}</td>
+    <td>${after(row)}</td>
+  </tr>
+`).join("");
+
+document.getElementById("size").addEventListener("change", event => {
+  document.querySelector("table").classList.toggle("compact", event.target.checked);
+});
+</script>
+</html>

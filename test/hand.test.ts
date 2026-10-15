@@ -52,7 +52,7 @@ test("hand toggles require the toggle action, a known hand state, and preserved 
 
 test("hand feedback distinguishes raised, lowered, and unknown using a hand icon", () => {
   assert.equal(presentation({ status: "raised" }, "hand").label, "RAISED");
-  assert.equal(presentation({ status: "lowered" }, "hand").label, "LOWERED");
+  assert.equal(presentation({ status: "lowered" }, "hand").label, "DOWN");
   for (const status of ["unknown", "stale"] as const) {
     assert.equal(presentation({ status }, "hand").label, "UNKNOWN");
     const svg = renderSvg({ status }, "hand");

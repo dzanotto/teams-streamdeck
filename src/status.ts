@@ -73,7 +73,7 @@ export function presentation(snapshot: Snapshot, media: Control = "mic"): { labe
     case "on": return { label: "ON", color: "#62d6ac", detail: "Teams reports the camera on." };
     case "off": return { label: "OFF", color: "#f07178", detail: "Teams reports the camera off." };
     case "raised": return { label: "RAISED", color: "#62d6ac", detail: "Teams reports your hand raised. Press to lower it." };
-    case "lowered": return { label: "LOWERED", color: "#8b98a9", detail: "Teams reports your hand lowered. Press to raise it." };
+    case "lowered": return { label: "DOWN", color: "#f5c56b", detail: "Teams reports your hand lowered. Press to raise it." };
     case "ready": return { label: "END CALL", color: "#f07178", detail: "Press to leave your active Teams call." };
     case "ending": return { label: "ENDING", color: "#8b98a9", detail: "Leaving your call… Additional presses are ignored until this finishes." };
     case "ended": return { label: "ENDED", color: "#62d6ac", detail: "The CLI confirmed that you left the call." };
@@ -82,20 +82,32 @@ export function presentation(snapshot: Snapshot, media: Control = "mic"): { labe
     case "ambiguous": return { label: "MULTIPLE", color: "#f5c56b", detail: `Teams exposes multiple possible calls or conflicting ${control} controls.` };
     case "setup": return { label: "SETUP", color: "#f5c56b", detail: "Choose an existing, executable teams-cli binary using its absolute path." };
     case "checking": return { label: "CHECKING", color: "#8b98a9", detail: `Reading ${control} status…` };
-    case "toggling": return { label: "TOGGLING", color: "#8b98a9", detail: `Changing ${control} status… Additional presses are ignored until this finishes.` };
-    case "stale": return { label: "UNKNOWN", color: "#f5c56b", detail: "The last observation has expired. Waiting for a fresh read." };
-    default: return { label: "UNKNOWN", color: "#f5c56b", detail: snapshot.reason === "all_calls_on_hold" ? "All detected calls are on hold." : media === "call" ? "The call-end command was not confirmed. Check Teams before pressing again." : `Teams ${control} status is unavailable. Missing controls do not prove the ${control} is ${media === "mic" ? "muted" : media === "hand" ? "lowered" : "off"} or that no call exists.` };
+    case "toggling": return { label: "TOGGLING", color: "#a0a0a0", detail: `Changing ${control} status… Additional presses are ignored until this finishes.` };
+    case "stale": return { label: "UNKNOWN", color: "#a0a0a0", detail: "The last observation has expired. Waiting for a fresh read." };
+    default: return { label: "UNKNOWN", color: "#a0a0a0", detail: snapshot.reason === "all_calls_on_hold" ? "All detected calls are on hold." : media === "call" ? "The call-end command was not confirmed. Check Teams before pressing again." : `Teams ${control} status is unavailable. Missing controls do not prove the ${control} is ${media === "mic" ? "muted" : media === "hand" ? "lowered" : "off"} or that no call exists.` };
   }
 }
 
 export function renderSvg(snapshot: Snapshot, media: Control = "mic"): string {
   const { color, label } = presentation(snapshot, media);
-  const showControl = media === "call" || ["muted", "unmuted", "on", "off", "raised", "lowered", "unknown", "stale", "toggling"].includes(snapshot.status);
+  const showControl = media === "call" || media === "hand" || ["muted", "unmuted", "on", "off", "raised", "lowered", "unknown", "stale", "toggling"].includes(snapshot.status);
+  const endCall = media === "call" && snapshot.status === "ready";
+  const emphasized = endCall || (media !== "call" && knownStates[media].includes(snapshot.status));
+  const background = endCall ? "#bc303b" : "#151c28";
+  const foreground = endCall ? "#ffffff" : color;
   const mic = '<rect x="58" y="25" width="28" height="49" rx="14"/><path d="M46 60v7a26 26 0 0 0 52 0v-7M72 93v15M57 108h30"/>';
   const camera = '<rect x="30" y="42" width="55" height="50" rx="8"/><path d="M85 57l29-16v52L85 77z"/>';
   const hand = '<path d="M47 70V42a7 7 0 0 1 14 0v21-35a7 7 0 0 1 14 0v35-31a7 7 0 0 1 14 0v34-21a7 7 0 0 1 14 0v34c0 20-11 31-28 31-12 0-19-5-26-14L32 75a7 7 0 0 1 10-10l12 14"/>';
   const handset = '<path d="M29 61Q72 27 115 61v20q0 5-5 5H94q-5 0-5-5V67q-17-9-34 0v14q0 5-5 5H34q-5 0-5-5z"/>';
+  const boldMic = `<rect x="56" y="22" width="32" height="54" rx="16"/><path d="M43 61v8a29 29 0 0 0 58 0v-8M72 98v12M56 110h32" fill="none" stroke="${foreground}" stroke-width="8" stroke-linecap="round"/>`;
+  const boldCamera = '<rect x="25" y="39" width="65" height="58" rx="10"/><path d="M96 55l24-15v56L96 81z"/>';
+  const question = '<circle cx="72" cy="61" r="34"/><path d="M61 49a12 12 0 1 1 18 11c-7 4-7 7-7 12M72 83v1"/>';
+  const shape = showControl ? (media === "mic" ? (emphasized ? boldMic : mic) : media === "camera" ? (emphasized ? boldCamera : camera) : media === "hand" ? hand : handset) : question;
+  const filled = emphasized && media !== "hand";
+  let symbol = `<g fill="${filled ? foreground : "none"}" stroke="${filled ? "none" : foreground}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">${shape}</g>`;
   const inactive = snapshot.status === "muted" || snapshot.status === "off";
-  const symbol = showControl ? (media === "mic" ? mic : media === "camera" ? camera : media === "hand" ? hand : handset) + (inactive ? '<path d="M39 28l66 76" stroke="#151c28" stroke-width="12"/><path d="M39 28l66 76"/>' : "") : '<circle cx="72" cy="61" r="34"/><path d="M61 49a12 12 0 1 1 18 11c-7 4-7 7-7 12M72 83v1"/>';
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" rx="18" fill="#151c28"/><g fill="none" stroke="${color}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">${symbol}</g><text x="72" y="133" text-anchor="middle" font-family="Arial, sans-serif" font-weight="bold" font-size="17" fill="${color}">${label}</text></svg>`;
+  if (inactive) {
+    symbol += `<g fill="none" stroke-linecap="round"><path d="M33 25l78 82" stroke="${background}" stroke-width="17"/><path d="M33 25l78 82" stroke="${foreground}" stroke-width="9"/></g>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" rx="18" fill="${background}"/>${symbol}<text x="72" y="${emphasized ? 131 : 133}" text-anchor="middle" font-family="Arial, sans-serif" font-weight="bold" font-size="${emphasized ? 18 : 17}" fill="${foreground}">${label}</text></svg>`;
 }

@@ -39,7 +39,7 @@ permission backoff, and settings-panel message routing.
 
 The integration test launches the actual bundled SDK plug-in against a local
 WebSocket host and a fake CLI. It verifies microphone, camera, and hand controls,
-shared reads, MUTED/LIVE, OFF/ON, and LOWERED/RAISED image changes, toggles in both directions, duplicate-press handling,
+shared reads, MUTED/LIVE, OFF/ON, and DOWN/RAISED image changes, toggles in both directions, duplicate-press handling,
 failed-toggle alerts, inspector messages, changed paths, and stopping polls when
 keys disappear. Each run keeps the other control visible to check that its
 state, settings-panel details, and polling remain independent.

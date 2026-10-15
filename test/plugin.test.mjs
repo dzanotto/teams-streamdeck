@@ -271,7 +271,7 @@ test("without Homebrew, configured keys keep their path and new keys show SETUP"
 const mediaStates = {
   mic: { field: "microphone", inactive: "muted", active: "unmuted", inactiveLabel: "MUTED", activeLabel: "LIVE" },
   camera: { field: "camera", inactive: "off", active: "on", inactiveLabel: "OFF", activeLabel: "ON" },
-  hand: { field: "hand", inactive: "lowered", active: "raised", inactiveLabel: "LOWERED", activeLabel: "RAISED" }
+  hand: { field: "hand", inactive: "lowered", active: "raised", inactiveLabel: "DOWN", activeLabel: "RAISED" }
 };
 
 for (const media of ["mic", "camera", "hand"]) {
@@ -382,14 +382,14 @@ run();
   const { messages, waitFor, waitForTiming, send, imageHas, payload } = await launchPlugin(t, dir, cli, "com.dario.teams-cli.hand-status");
   const actions = async () => (await readFile(calls, "utf8")).trim().split("\n").map(JSON.parse).filter((args) => args[1] !== "status");
   send("willAppear");
-  await waitFor((m) => imageHas(m, "key-a", "LOWERED"));
+  await waitFor((m) => imageHas(m, "key-a", "DOWN"));
   send("willAppear", "key-b");
-  await waitFor((m) => imageHas(m, "key-b", "LOWERED"));
+  await waitFor((m) => imageHas(m, "key-b", "DOWN"));
   await writeFile(state, "raised");
   messages.length = 0;
   send("keyDown");
   await waitFor((m) => imageHas(m, "key-a", "TOGGLING"));
-  await waitFor((m) => imageHas(m, "key-a", "LOWERED"));
+  await waitFor((m) => imageHas(m, "key-a", "DOWN"));
   assert.deepEqual(await actions(), [["hand", "toggle", "--json"]]);
   const timing = await waitForTiming((record) => record.outcome === "confirmed");
   assert.deepEqual(timing.commands.map((span) => span.command), ["hand toggle --json"]);

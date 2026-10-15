@@ -61,17 +61,17 @@ path when upgrading the CLI.
 | OFF | Teams reports the camera off; red crossed-out camera |
 | ON | Teams reports the camera on; green camera |
 | RAISED | Teams reports your hand raised; green hand |
-| LOWERED | Teams reports your hand lowered; gray hand |
+| DOWN | Teams reports your hand lowered; amber hand with the same shape as RAISED |
 | TEAMS OFF | Teams is not running |
 | ACCESS | macOS Accessibility permission is unavailable |
 | MULTIPLE | Multiple eligible calls or conflicting controls |
 | SETUP | The executable path needs attention |
 | CHECKING | Awaiting an initial observation |
-| TOGGLING | A toggle is pending for this control; additional presses are ignored |
-| END CALL | Press to leave your call; this label does not indicate whether a call exists |
+| TOGGLING | A toggle is pending for this control; gray control icon; additional presses are ignored |
+| END CALL | White handset on a red button; press to leave your call; this label does not indicate whether a call exists |
 | ENDING | An end-call command is pending; additional presses are ignored |
 | ENDED | The CLI confirmed that you left the call; shown for two seconds |
-| UNKNOWN | Inconclusive observation or unverified command; amber microphone, camera, hand, or handset |
+| UNKNOWN | Inconclusive observation or unverified command; gray microphone, camera, hand, or handset |
 
 Select a key in Stream Deck to see its current status and any failure reason.
 Additional presses while that control is busy are ignored.
