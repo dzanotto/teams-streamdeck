@@ -58,6 +58,9 @@ dependencies are included.
 
 Release tests check version/tag mismatches and use a fake `gh` executable to
 exercise checksum generation, draft creation, and publication failure handling.
+The release-command tests use temporary repositories and local bare remotes to
+check version updates, dry runs, annotated tags, duplicate and dirty-tree
+refusals, remote-history checks, atomic pushes, and commit/push failures.
 They do not call GitHub or publish releases.
 
 ## Live validation scope

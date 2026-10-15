@@ -137,8 +137,11 @@ Integration tests need permission to listen on localhost.
 on Apple Silicon and Intel macOS runners. See the [CI notes](docs/testing.md#continuous-integration)
 for triggers and build artifacts.
 
-To publish an installer, follow the [release steps](docs/releases.md). Pushing a
-matching stable version tag runs CI and publishes the installer and checksum.
+To publish an installer from a clean `main` branch, run `npm run release -- patch`
+(or `minor`, `major`, or an explicit version). Add `--dry-run` to preview it.
+The command updates the versions, commits, tags, and pushes to `origin`; the tag
+runs CI and publishes the installer and checksum. See the
+[release steps](docs/releases.md) for requirements and failure recovery.
 
 See [development notes](docs/development.md) for local linking, reloads, CLI
 commands, polling, and timing logs, and [testing notes](docs/testing.md) for

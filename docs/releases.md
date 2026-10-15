@@ -4,37 +4,40 @@ The [release workflow](../.github/workflows/release.yml) runs when a tag matchin
 `v*` is pushed. It accepts stable versions such as `v0.1.0`; prerelease/build
 suffixes and leading zeros are rejected.
 
-## Manual steps
+## Release command
 
-Before the first release, commit and push the release workflow and its supporting
-files. The current `0.1.0` package and `0.1.0.0` manifest match the tag `v0.1.0`.
+From the repository root, use Node 24+ (`nvm use`). Update the
+[release notes](release-notes.md) and README if requirements or limitations
+changed, and commit your work on `main` before running:
 
-For subsequent releases:
+```sh
+npm run release -- patch --dry-run
+npm run release -- patch
+```
 
-1. Update the package and lockfile together, for example:
+Use `minor` or `major` instead of `patch`, or supply an explicit stable version:
 
-   ```sh
-   npm version 0.1.1 --no-git-tag-version
-   ```
+```sh
+npm run release -- 0.2.0
+```
 
-2. Set `Version` in `com.dario.teams-cli.sdPlugin/manifest.json` to `0.1.1.0`.
-   The fourth component must be zero. Update [release notes](release-notes.md)
-   and the README if requirements or known limitations changed.
-3. Check version consistency, then commit and push the changes:
+A leading `v` is also accepted. The version must increase. The script updates
+`package.json`, both root version fields in `package-lock.json`, and the
+manifest's `Version` to `X.Y.Z.0`. It commits those three files as
+`Release vX.Y.Z`, creates an annotated tag, and pushes `main` and that tag to
+`origin` in one atomic push. Any earlier unpushed commits on `main` are included.
+Dependency versions and handwritten release notes are not changed.
 
-   ```sh
-   node scripts/check-release.mjs v0.1.1
-   ```
+The command requires a clean working tree (including untracked files), matching
+current versions, and an existing `main` branch on `origin` whose history is
+included in local `main`. It rejects existing local or remote tags and multiple
+push destinations. If remote changes are missing locally, fetch and integrate
+them first. `--dry-run` performs the same read-only checks, including contacting
+the push destination, and prints the plan without changing files or Git refs.
 
-4. Tag that commit and push the tag:
-
-   ```sh
-   git tag -a v0.1.1 -m "Release v0.1.1"
-   git push origin v0.1.1
-   ```
-
-Use `v0.1.0` for the first release. Observe the Release workflow run to confirm
-publication succeeded.
+The script checks version consistency locally; the tag-triggered workflow runs
+the full test, validation, and packaging checks. Observe the Release workflow
+run to confirm publication succeeded.
 
 ## Automated steps
 
@@ -55,6 +58,14 @@ artifacts are `com.dario.teams-cli.streamDeckPlugin` and `SHA256SUMS`. The sourc
 archives supplied by GitHub are separate from the installer.
 
 ## Failed runs and retries
+
+If the release command fails before tagging, inspect `git status` and the latest
+commit; any completed local edits or commit remain for inspection. If the push
+fails, the release commit and tag remain locally. An atomic push updates both
+remote refs or neither; a lost connection can still leave its outcome uncertain.
+Inspect the remote branch and tag, then use the exact retry command printed by
+the script. Do not rerun the version bump or move the tag. Servers that do not
+support atomic pushes are rejected without falling back to separate pushes.
 
 Version mismatches stop before CI. Test, validation, and packaging failures stop
 before publication. The publish script checks the remote tag against the tested

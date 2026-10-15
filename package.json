@@ -24,6 +24,7 @@
     "test:integration": "npm run build && node --test test/plugin.test.mjs",
     "validate": "streamdeck validate com.dario.teams-cli.sdPlugin",
     "pack": "npm run build && streamdeck pack com.dario.teams-cli.sdPlugin",
+    "release": "node scripts/release.mjs",
     "link": "streamdeck link com.dario.teams-cli.sdPlugin",
     "restart": "streamdeck restart com.dario.teams-cli"
   },
